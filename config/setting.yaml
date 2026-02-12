@@ -1,0 +1,7 @@
+# setting.yaml
+# basic settings file for the project
+
+# Required
+scand_img_root: "/media/jim/Ironwolf/datasets/scand_data/images"
+annotations_root: "./annotations"
+

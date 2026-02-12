@@ -1,4 +1,8 @@
 # prune
+To train a reward model based on the CHOP dataset
+
+### Data:
+
 
 ### To run:
 I am trying out using uv as my project manager
