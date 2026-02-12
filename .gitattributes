@@ -1,0 +1,56 @@
+# Basic .gitattributes for a python repo.
+
+# Source files
+# ============
+*.pxd    text diff=python
+*.py     text diff=python
+*.py3    text diff=python
+*.pyw    text diff=python
+*.pyx    text diff=python
+*.pyz    text diff=python
+*.pyi    text diff=python
+
+# Binary files
+# ============
+*.db     binary
+*.p      binary
+*.pkl    binary
+*.pickle binary
+*.pyc    binary export-ignore
+*.pyo    binary export-ignore
+*.pyd    binary
+
+# Jupyter notebook
+*.ipynb  text
+
+# Note: .db, .p, and .pkl files are associated
+# with the python modules ``pickle``, ``dbm.*``,
+# ``shelve``, ``marshal``, ``anydbm``, & ``bsddb``
+# (among others).
+
+# Below has been taken from: 
+# https://gist.github.com/motss/199ceb253f27904cff41eef75aac2fae
+
+# Automatically normalize line endings for all text-based files
+# http://git-scm.com/docs/gitattributes#_end_of_line_conversion
+* text=auto
+
+# For the following file types, normalize line endings to LF on
+# checking and prevent conversion to CRLF when they are checked out
+# (this is required in order to prevent newline related issues like,
+# for example, after the build script is run)
+.*      text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.scss  text eol=lf
+*.md    text eol=lf
+*.rs    text eol=lf
+*.sh    text eol=lf
+*.toml  text eol=lf
+*.txt   text eol=lf
+*.xml   text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.py    text eol=lf
