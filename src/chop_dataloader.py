@@ -75,7 +75,7 @@ def _extract_path(data: Dict[str, Any], num_points: int) -> Dict[str, Any]:
 class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
-    def __init__(self, preference_root, image_root, img_extension, split_json, mode, transform=None):
+    def __init__(self, preference_root, image_root, img_extension, split_json, mode, num_points, transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
@@ -83,6 +83,7 @@ class ChopPreferenceDataset(Dataset):
             img_extension (string): Extension of image files, e.g. png
             split_json (string): Path to the JSON file defining the train/test split.
             mode (string): 'train' or 'test'
+            num_points (int): number of points per trajectory to resample to
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
@@ -98,12 +99,16 @@ class ChopPreferenceDataset(Dataset):
         #         print(f"{self.split_json} loaded, {len(self.bag_test_train_lookup)} entries.")
         self.json_paths = Path(self.preference_root) / self.mode
         self.glob_list = sorted(glob.glob(f"{self.preference_root}/**/*.json", recursive=True))
+        self.num_points = num_points
 
     def __len__(self):
         return len(self.glob_list)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, pick_mode="two"):
         """
+        pick_mode:
+            two: randomly pick two where first trajectory is ranked higher than the next
+            all: return all four
         pref_dict keys:
         dict_keys(['frame_idx', 'robot_width', 'paths', 'preference', 'pairwise', 'position', 'yaw', 'stop'])
         pref_dict['paths']['0'].keys():
@@ -119,8 +124,15 @@ class ChopPreferenceDataset(Dataset):
         points_list = []
         left_boundaries = []
         right_boundaries = []
+
+        # pick two random rankings where the first one is better ranked than the next,
+        if pick_mode == "two":
+            first_trajectory = np.random.randint(0, 3)
+            second_trajectory = first_trajectory + 1
+            ranking_list = [str(first_trajectory), str(second_trajectory)]
+
         for rank in ranking_list:
-            path_data = _extract_path(pref_dict['paths'][str(rank)], num_points=10)
+            path_data = _extract_path(pref_dict['paths'][str(rank)], num_points=self.num_points)
             points_list.append(path_data['points'])
             left_boundaries.append(path_data['left_boundary'])
             right_boundaries.append(path_data['right_boundary'])
@@ -181,16 +193,23 @@ def main():
         default="train",
         help="train or test",
     )
+    parser.add_argument(
+        "--num-points",
+        type=str,
+        default=10,
+        help="number of points to resample for each trajectory",
+    )
     args = parser.parse_args()
 
     my_dataset = ChopPreferenceDataset(preference_root=args.preference_root,
-                                      image_root=args.image_root,
-                                      img_extension=args.image_ext,
-                                      split_json=args.test_train_split_json,
-                                      mode=args.mode
+                                       image_root=args.image_root,
+                                       img_extension=args.image_ext,
+                                       split_json=args.test_train_split_json,
+                                       mode=args.mode,
+                                       num_points=args.num_points,
                                       )
     for i, sample in enumerate(my_dataset):
-        print(i, sample['image'].shape, sample['points'].shape)
+        print(i, "image shape:", sample['image'].shape, "points shape:", sample['points'].shape)
 
 
 if __name__ == "__main__":
