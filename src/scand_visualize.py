@@ -1,3 +1,7 @@
+"""
+scand_visualize.py
+used to visualize different trajectories from the CHOP + SCAND dataset.
+"""
 from __future__ import annotations
 
 import argparse
@@ -51,9 +55,9 @@ def draw(frame_item: FrameItem, path_0: PathItem, path_1: PathItem, K: np.ndarra
         return
     img = current_img.copy()
     img_h, img_w = img.shape[:2]
-    points_2d_0 = clean_2d(
-        project_clip(path_0.path_points, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
-        img_w, img_h)
+    # points_2d_0 = clean_2d(
+    #     project_clip(path_0.path_points, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
+    #     img_w, img_h)
     left_2d_0 = clean_2d(
         project_clip(path_0.left_boundary, T_cam_from_base, K, dist, img_h, img_w, smooth_first=True),
         img_w, img_h)
@@ -88,7 +92,7 @@ def visualize_scand(
     image_ext: str = "jpg",
     default_split: str = "train",
     num_points: int = 8,
-) -> Tuple[int, int]:
+):
     """Generate per-split SCAND-A indices, grouping samples by bag within train/test files."""
     split_map = json.load(test_train_split_json.open("r")) if test_train_split_json.exists() else {}
     output_dir.mkdir(parents=True, exist_ok=True)
