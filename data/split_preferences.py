@@ -4,16 +4,7 @@ splitting each annotation into its own json file rather than havinga single json
 this matches how the images are organized and maximizes utilities of dataloaders
 """
 import os
-import torch
 import json
-from skimage import io, transform
-import numpy as np
-import matplotlib.pyplot as plt
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils
-import argparse
-from pathlib import Path
-import yaml
 from tqdm import tqdm
 
 def main():
@@ -32,7 +23,7 @@ def main():
             annotation_dict = json.load(f)
         assert annotation_dict['bag'] == f"{bag_name}.bag"
         for timestamp in annotation_dict['annotations_by_stamp']:
-            folder_name = os.path.join(annotation_save_root, bag_name)
+            folder_name = os.path.join(annotation_save_root, split, bag_name)
             if not os.path.exists(folder_name):
                 os.makedirs(folder_name, exist_ok=True)
             with open(f"{folder_name}/{timestamp}.json", "w") as f:

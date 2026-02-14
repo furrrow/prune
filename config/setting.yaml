@@ -3,4 +3,5 @@
 
 # Required
 scand_img_root: "/media/jim/Ironwolf/datasets/scand_data/images"
+scand_preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
 

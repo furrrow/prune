@@ -13,7 +13,9 @@ from torchvision import transforms, utils
 import argparse
 from pathlib import Path
 import yaml
+import glob
 from tqdm import tqdm
+import cv2
 # Ignore warnings
 import warnings
 # warnings.filterwarnings("ignore")
@@ -21,10 +23,10 @@ import warnings
 class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
-    def __init__(self, preference_dir, image_root, img_extension, split_json, mode, transform=None):
+    def __init__(self, preference_root, image_root, img_extension, split_json, mode, transform=None):
         """
         Arguments:
-            preference_dir (string): Path to the preference dataset.
+            preference_root (string): Path to the preference dataset.
             image_root (string): Directory of all SCAND images (not rosbags).\
             img_extension (string): Extension of image files, e.g. png
             split_json (string): Path to the JSON file defining the train/test split.
@@ -32,50 +34,21 @@ class ChopPreferenceDataset(Dataset):
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
-        self.preference_dir = preference_dir
+        self.preference_root = preference_root
         self.image_root = image_root
         self.img_extension = img_extension
         self.split_json = split_json
         self.mode = mode
         self.transform = transform
-        if os.path.exists(self.split_json):
-            with open(self.split_json, 'r') as f:
-                self.bag_test_train_lookup = json.load(f)
-                print(f"{self.split_json} loaded, {len(self.bag_test_train_lookup)} entries.")
-
-        self.entry_save_json = f"../data/annotations/{mode}_dict.json"
-        self.entry_dict = {}
-        if os.path.exists(self.entry_save_json):
-            with open(self.entry_save_json, 'r') as f:
-                self.entry_dict = json.load(f)
-                print(f"{self.entry_save_json} loaded, {len(self.entry_dict)} entries.")
-        else:
-            self.generate_dataset_mapping()
-        self.timestamp_list = list(self.entry_dict.keys())
-
-    def generate_dataset_mapping(self):
-        """
-        generates a complete mapping between each annotation entry (by timestamp) and its matching bag file
-        example: self.entry_dict[''1635452200233731230''] = 'A_Jackal_AHG_Library_Thu_Oct_28_1.bag'
-
-        :return: None
-        """
-        print(f"generating entry mapping for {self.entry_save_json}...")
-        for json_file in tqdm(sorted(self.preference_dir.glob("*.json"))):
-            with json_file.open("r") as f:
-                raw = json.load(f)
-                bag_name = Path(raw.get("bag", json_file.stem)).stem
-                if self.bag_test_train_lookup[bag_name] != self.mode:
-                    continue
-                timestamp_list = list(raw['annotations_by_stamp'].keys())
-                for timestamp in timestamp_list:
-                    self.entry_dict[timestamp] = bag_name
-        with open(self.entry_save_json, "w") as f:
-            json.dump(self.entry_dict, f)
-            print(f"entry mapping saved to {self.entry_save_json}")
+        # if os.path.exists(self.split_json):
+        #     with open(self.split_json, 'r') as f:
+        #         self.bag_test_train_lookup = json.load(f)
+        #         print(f"{self.split_json} loaded, {len(self.bag_test_train_lookup)} entries.")
+        self.json_paths = Path(self.preference_root) / self.mode
+        self.glob_list = sorted(glob.glob(f"{self.preference_root}/**/*.json", recursive=True))
 
     def __len__(self):
-        return len(self.entry_save_json)
+        return len(self.glob_list)
 
     def process_annotation_file(self, json_path: Path, num_points):
         with json_path.open("r") as f:
@@ -116,17 +89,40 @@ class ChopPreferenceDataset(Dataset):
         return processed
 
     def __getitem__(self, idx):
+        """
+        pref_dict keys:
+        dict_keys(['frame_idx', 'robot_width', 'paths', 'preference', 'pairwise', 'position', 'yaw', 'stop'])
+        pref_dict['paths']['0'].keys():
+        dict_keys(['points', 'left_boundary', 'right_boundary', 'timestamp'])
+        """
         if torch.is_tensor(idx):
             idx = idx.tolist()
+        # preferences
+        json_path = self.glob_list[idx]
+        with open(json_path, 'r') as f:
+            pref_dict = json.load(f)
+        ranking_list = list(pref_dict['preference'])
+        points_list = []
+        left_boundaries = []
+        right_boundaries = []
+        for rank in ranking_list:
+            points_list.append(pref_dict['paths'][str(rank)]['points'])
+            left_boundaries.append(pref_dict['paths'][str(rank)]['left_boundary'])
+            right_boundaries.append(pref_dict['paths'][str(rank)]['right_boundary'])
+        # images
+        stem, json_file = os.path.split(json_path)
+        stem, bag_name = os.path.split(stem)
+        img_path = os.path.join(self.image_root, bag_name)
+        img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
+        img_path = os.path.join(img_path, img_name)
+        image = cv2.imread(img_path)
 
-        bag_name = self.timestamp_list[idx]
-
-        img_name = os.path.join(self.root_dir,
-                                self.landmarks_frame.iloc[idx, 0])
-        image = io.imread(img_name)
-        landmarks = self.landmarks_frame.iloc[idx, 1:]
-        landmarks = np.array([landmarks], dtype=float).reshape(-1, 2)
-        sample = {'image': image, 'landmarks': landmarks}
+        sample = {
+            'image': np.expand_dims(image, 0),
+            'points': np.expand_dims(np.array(points_list), 0),
+            'left_boundaries': np.expand_dims(np.array(left_boundaries), 0),
+            'right_boundaries': np.expand_dims(np.array(right_boundaries), 0),
+        }
 
         if self.transform:
             sample = self.transform(sample)
@@ -141,15 +137,14 @@ def main():
         description="Preprocess SCAND-A annotations into a flat index of image/trajectory pairs."
     )
     parser.add_argument(
-        "--preference-dir",
+        "--preference-root",
         type=Path,
-        default= project_home_dir / "data" / "annotations" / "preferences",
+        default=settings['scand_preference_root'],
         help="Directory containing SCAND annotation JSON files.",
     )
     parser.add_argument(
         "--image-root",
         type=Path,
-        # default=project_home_dir / "data" / "images",
         default=settings['scand_img_root'],
         help="Root directory containing extracted SCAND images (organized by bag name)",
     )
@@ -173,20 +168,14 @@ def main():
     )
     args = parser.parse_args()
 
-    my_dataset = ChopPreferenceDataset(preference_dir=args.preference_dir,
+    my_dataset = ChopPreferenceDataset(preference_root=args.preference_root,
                                       image_root=args.image_root,
                                       img_extension=args.image_ext,
                                       split_json=args.test_train_split_json,
                                       mode=args.mode
                                       )
     for i, sample in enumerate(my_dataset):
-        print(i, sample['image'].shape, sample['landmarks'].shape)
-
-        ax = plt.subplot(1, 4, i + 1)
-        plt.tight_layout()
-        ax.set_title('Sample #{}'.format(i))
-        ax.axis('off')
-        show_landmarks(**sample)
+        print(i, sample['image'].shape, sample['points'].shape)
 
 
 if __name__ == "__main__":
