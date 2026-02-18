@@ -27,7 +27,7 @@ def main():
             if not os.path.exists(folder_name):
                 os.makedirs(folder_name, exist_ok=True)
             with open(f"{folder_name}/{timestamp}.json", "w") as f:
-                json.dump(annotation_dict['annotations_by_stamp'][timestamp], f)
+                json.dump(annotation_dict['annotations_by_stamp'][timestamp], f, indent=4)
 
 
 if __name__ == "__main__":

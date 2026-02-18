@@ -18,7 +18,7 @@ arranged by bag file name. Please provide the scand_img_root in [config/setting.
 ### To run:
 I am trying out using uv as my project manager
 please check out the documentation
-https://docs.astral.sh/uv/guides/projects/#running-commands
+https://docs.astral.sh/uv/guides/projects/#managing-dependencies
 or just run 
 ```console
 uv

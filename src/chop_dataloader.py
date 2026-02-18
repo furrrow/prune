@@ -5,6 +5,9 @@ dataloader class to load both the SCAND image and the preferred trajectory
 import os
 import torch
 import json
+
+from cv2 import Mat
+from numpy import dtype, floating, integer, ndarray
 from skimage import io, transform
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,7 +20,8 @@ import glob
 from tqdm import tqdm
 import cv2
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
-
+from utils.vis_utils import draw_corridor, load_calibration, clean_2d, project_clip, make_corridor_polygon_from_cam_lines
+from utils.vis_utils import color_dict
 # Ignore warnings
 import warnings
 # warnings.filterwarnings("ignore")
@@ -75,12 +79,14 @@ def _extract_path(data: Dict[str, Any], num_points: int) -> Dict[str, Any]:
 class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
-    def __init__(self, preference_root, image_root, img_extension, split_json, mode, num_points, transform=None):
+    def __init__(self, preference_root, image_root, img_extension, calib_file,
+                 split_json, mode, num_points, verbose, transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
             image_root (string): Directory of all SCAND images (not rosbags).\
             img_extension (string): Extension of image files, e.g. png
+            calib_file (string): location of calibration file for intrinsics & extrinsics
             split_json (string): Path to the JSON file defining the train/test split.
             mode (string): 'train' or 'test'
             num_points (int): number of points per trajectory to resample to
@@ -90,8 +96,10 @@ class ChopPreferenceDataset(Dataset):
         self.preference_root = preference_root
         self.image_root = image_root
         self.img_extension = img_extension
+        self.calib_file = calib_file
         self.split_json = split_json
         self.mode = mode
+        self.verbose = verbose
         self.transform = transform
         # if os.path.exists(self.split_json):
         #     with open(self.split_json, 'r') as f:
@@ -100,6 +108,12 @@ class ChopPreferenceDataset(Dataset):
         self.json_paths = Path(self.preference_root) / self.mode
         self.glob_list = sorted(glob.glob(f"{self.preference_root}/**/*.json", recursive=True))
         self.num_points = num_points
+        with open(self.calib_file, "r") as f:
+            calib_data = json.load(f)
+        fx, fy, cx, cy = (calib_data['scand_kinect_intrinsics']['fx'], calib_data['scand_kinect_intrinsics']['fy'],
+                          calib_data['scand_kinect_intrinsics']['cx'], calib_data['scand_kinect_intrinsics']['cy'])
+        self.K, self.dist, self.T_base_from_cam = load_calibration(self.calib_file, fx, fy, cx, cy, mode="spot")
+        self.T_cam_from_base = np.linalg.inv(self.T_base_from_cam)
 
     def __len__(self):
         return len(self.glob_list)
@@ -144,8 +158,26 @@ class ChopPreferenceDataset(Dataset):
         img_path = os.path.join(img_path, img_name)
         image = cv2.imread(img_path)
 
+        # draw overlay of preferred trajectory
+        if self.verbose:
+            print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
+        # path_data = _extract_path(pref_dict['paths'][str(ranking_list[0])], num_points=self.num_points)
+        path_data = pref_dict['paths'][ranking_list[0]]
+        pref_img = self.overlay_trajectory(image, path_data, color=color_dict['GREEN'], visualize=False)
+        # draw overlay of bad trajectory
+        # path_data = _extract_path(pref_dict['paths'][str(ranking_list[1])], num_points=self.num_points)
+        path_data = pref_dict['paths'][ranking_list[1]]
+        rej_img = self.overlay_trajectory(pref_img, path_data, color=color_dict['RED'], visualize=False)
+
+        cv2.namedWindow(f"window", cv2.WINDOW_NORMAL)
+        # cv2.resizeWindow(f"window", 500, 500)
+        cv2.imshow(f"window", rej_img)
+        cv2.waitKey()
+
         sample = {
             'image': np.expand_dims(image, 0),
+            'preferred': np.expand_dims(pref_img, 0),
+            'rejected': np.expand_dims(rej_img, 0),
             'points': np.expand_dims(np.array(points_list), 0),
             'left_boundaries': np.expand_dims(np.array(left_boundaries), 0),
             'right_boundaries': np.expand_dims(np.array(right_boundaries), 0),
@@ -155,6 +187,22 @@ class ChopPreferenceDataset(Dataset):
             sample = self.transform(sample)
 
         return sample
+
+    def overlay_trajectory(self, image, path_data, color, visualize=True):
+
+        img = image.copy()
+        img_h, img_w = img.shape[:2]
+        left_boundary = path_data['left_boundary']
+        right_boundary = path_data['right_boundary']
+        left_2d = clean_2d(
+            project_clip(np.array(left_boundary), self.T_cam_from_base, self.K, self.dist, img_h, img_w),
+            img_w, img_h)
+        right_2d = clean_2d(
+            project_clip(np.array(right_boundary), self.T_cam_from_base, self.K, self.dist, img_h, img_w),
+            img_w, img_h)
+        poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
+        draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.35, fill_color=color, edge_thickness=2)
+        return img
 
 def main():
     with open('../config/setting.yaml', 'r') as f:
@@ -174,6 +222,12 @@ def main():
         type=Path,
         default=settings['scand_img_root'],
         help="Root directory containing extracted SCAND images (organized by bag name)",
+    )
+    parser.add_argument(
+        "--calibration-file",
+        type=Path,
+        default=settings['calibration_file'],
+        help="Calibration file for camera intrinsics & extrinsics",
     )
     parser.add_argument(
         "--image-ext",
@@ -199,18 +253,28 @@ def main():
         default=10,
         help="number of points to resample for each trajectory",
     )
+    parser.add_argument(
+        "--verbose",
+        type=str,
+        default=True,
+        help="show print statements",
+    )
     args = parser.parse_args()
 
     my_dataset = ChopPreferenceDataset(preference_root=args.preference_root,
                                        image_root=args.image_root,
+                                       calib_file=args.calibration_file,
                                        img_extension=args.image_ext,
                                        split_json=args.test_train_split_json,
                                        mode=args.mode,
+                                       verbose=args.verbose,
                                        num_points=args.num_points,
                                       )
     for i, sample in enumerate(my_dataset):
-        print(i, "image shape:", sample['image'].shape, "points shape:", sample['points'].shape)
-
+        print(i, "image shape:", sample['image'].shape,
+              "points shape:", sample['points'].shape,
+              )
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()

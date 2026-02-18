@@ -334,3 +334,9 @@ def clean_2d(arr, W, H, max_jump_px=300):
     jumps = np.linalg.norm(np.diff(arr,axis=0),axis=1)
     bad = np.where(jumps < max_jump_px)
     return arr if len(bad)==0 else arr[bad]
+
+color_dict = {
+    "RED" : (0, 0, 255),
+    "GREEN" : (0, 255, 0),
+    "YELLOW" : (0, 255, 255),
+}
