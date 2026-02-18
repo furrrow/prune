@@ -61,25 +61,29 @@ def get_BEV_kitti_tensor(front_img, fov, pitch, scale, out_size, yaw_deg=None):
     return BEV[0]
 
 def main():
-    vert_fov_deg = 50
-    theta_deg = 30.0  # pitch in bev
-    scale = 4
-    image_size=512
+    vert_fov_deg = 87/2
+    pitch_up = 30.0  # not sure what this angle actually does, manually determined
+    scale = 4 # the larger the scale the more zoomed-out you are
+    image_size = 1024
     device = torch.device("cpu")
 
     # take a random front view img from the SCAND dataset
     front_view_img = "/media/jim/Ironwolf/datasets/scand_data/images/A_Jackal_AHG_Library_Thu_Oct_28_1/img_1635452200038441393.png"
     front_frame =cv2.imread(front_view_img)
-    img1 = get_BEV_kitti_tensor(front_frame, vert_fov_deg, theta_deg, scale, image_size).to(device).unsqueeze(0)
+    img1 = get_BEV_kitti_tensor(front_frame, vert_fov_deg, pitch_up, scale, image_size).to(device).unsqueeze(0)
     bev_frame = img1[0].cpu().int().permute(1, 2, 0).numpy().astype(np.uint8)
 
 
-    # ax00 = fig.add_subplot(gs[0, :2])
-    # ax02 = fig.add_subplot(gs[0, 2])
-    cv2.imshow(f"window", front_frame)
-    cv2.waitKey()
-    cv2.imshow(f"window", bev_frame)
-    cv2.waitKey()
+    fig, ax = plt.subplots(2, 1)
+    front_img = cv2.cvtColor(front_frame, cv2.COLOR_BGR2RGB)
+    bev_image = cv2.cvtColor(bev_frame, cv2.COLOR_BGR2RGB)
+    ax[0].imshow(front_img)
+    ax[1].imshow(bev_image)
+    plt.show()
+    # cv2.imshow(f"window", front_frame)
+    # cv2.waitKey()
+    # cv2.imshow(f"window", bev_frame)
+    # cv2.waitKey()
 
 
 if __name__ == "__main__":
