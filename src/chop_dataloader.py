@@ -22,6 +22,8 @@ import cv2
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
 from utils.vis_utils import draw_corridor, load_calibration, clean_2d, project_clip, make_corridor_polygon_from_cam_lines
 from utils.vis_utils import color_dict
+
+from bev_transform import get_BEV_kitti_tensor
 # Ignore warnings
 import warnings
 # warnings.filterwarnings("ignore")
@@ -112,8 +114,20 @@ class ChopPreferenceDataset(Dataset):
             calib_data = json.load(f)
         fx, fy, cx, cy = (calib_data['scand_kinect_intrinsics']['fx'], calib_data['scand_kinect_intrinsics']['fy'],
                           calib_data['scand_kinect_intrinsics']['cx'], calib_data['scand_kinect_intrinsics']['cy'])
-        self.K, self.dist, self.T_base_from_cam = load_calibration(self.calib_file, fx, fy, cx, cy, mode="spot")
-        self.T_cam_from_base = np.linalg.inv(self.T_base_from_cam)
+        self.T_base_from_cam = {}
+        self.T_cam_from_base = {}
+
+        self.K, self.dist, self.T_base_from_cam["jackal"] = load_calibration(self.calib_file, fx, fy, cx, cy, mode="jackal")
+        self.K, self.dist, self.T_base_from_cam["spot"] = load_calibration(self.calib_file, fx, fy, cx, cy, mode="spot")
+        self.T_cam_from_base["jackal"] = np.linalg.inv(self.T_base_from_cam["jackal"])
+        self.T_cam_from_base["spot"] = np.linalg.inv(self.T_base_from_cam["spot"])
+
+        # self.vert_fov_deg = 87 / 2
+        self.vert_fov_deg = 58 / 2
+        self.pitch_up = 5.0  # not sure what this angle actually does, manually determined
+        self.image_size = 512
+        self.scale = 4  # recommend 2 or 3. larger the scale the more zoomed-out you are
+        self.device = torch.device("cpu")
 
     def __len__(self):
         return len(self.glob_list)
@@ -153,6 +167,12 @@ class ChopPreferenceDataset(Dataset):
         # images
         stem, json_file = os.path.split(json_path)
         stem, bag_name = os.path.split(stem)
+        if "Jackal" in bag_name:
+            robot_name="jackal"
+        elif "Spot" in bag_name:
+            robot_name="spot"
+        else:
+            print("Error, robot type unclear")
         img_path = os.path.join(self.image_root, bag_name)
         img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
         img_path = os.path.join(img_path, img_name)
@@ -163,21 +183,27 @@ class ChopPreferenceDataset(Dataset):
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[0])], num_points=self.num_points)
         path_data = pref_dict['paths'][ranking_list[0]]
-        pref_img = self.overlay_trajectory(image, path_data, color=color_dict['GREEN'], visualize=False)
+        pref_img = self.overlay_trajectory(image, path_data, color=color_dict['GREEN'], robot_name=robot_name)
         # draw overlay of bad trajectory
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[1])], num_points=self.num_points)
         path_data = pref_dict['paths'][ranking_list[1]]
-        rej_img = self.overlay_trajectory(pref_img, path_data, color=color_dict['RED'], visualize=False)
+        # rej_img = self.overlay_trajectory(image, path_data, color=color_dict['RED'], robot_name=robot_name)
+        # # bev_view
+        img1 = get_BEV_kitti_tensor(image, self.vert_fov_deg, self.pitch_up, self.scale, self.image_size
+                                    ).to(self.device).unsqueeze(0)
+        bev_frame = img1[0].cpu().int().permute(1, 2, 0).numpy().astype(np.uint8)
 
-        cv2.namedWindow(f"window", cv2.WINDOW_NORMAL)
-        # cv2.resizeWindow(f"window", 500, 500)
-        cv2.imshow(f"window", rej_img)
-        cv2.waitKey()
+        fig, ax = plt.subplots(2, 1)
+        pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
+        rej_view = cv2.cvtColor(bev_frame, cv2.COLOR_BGR2RGB)
+        ax[0].imshow(pref_view)
+        ax[1].imshow(rej_view)
+        plt.show(block=True)
 
         sample = {
             'image': np.expand_dims(image, 0),
             'preferred': np.expand_dims(pref_img, 0),
-            'rejected': np.expand_dims(rej_img, 0),
+            'bev': np.expand_dims(bev_frame, 0),
             'points': np.expand_dims(np.array(points_list), 0),
             'left_boundaries': np.expand_dims(np.array(left_boundaries), 0),
             'right_boundaries': np.expand_dims(np.array(right_boundaries), 0),
@@ -188,17 +214,17 @@ class ChopPreferenceDataset(Dataset):
 
         return sample
 
-    def overlay_trajectory(self, image, path_data, color, visualize=True):
+    def overlay_trajectory(self, image, path_data, color, robot_name):
 
         img = image.copy()
         img_h, img_w = img.shape[:2]
         left_boundary = path_data['left_boundary']
         right_boundary = path_data['right_boundary']
         left_2d = clean_2d(
-            project_clip(np.array(left_boundary), self.T_cam_from_base, self.K, self.dist, img_h, img_w),
+            project_clip(np.array(left_boundary), self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
             img_w, img_h)
         right_2d = clean_2d(
-            project_clip(np.array(right_boundary), self.T_cam_from_base, self.K, self.dist, img_h, img_w),
+            project_clip(np.array(right_boundary), self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
             img_w, img_h)
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
         draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.35, fill_color=color, edge_thickness=2)
@@ -270,11 +296,17 @@ def main():
                                        verbose=args.verbose,
                                        num_points=args.num_points,
                                       )
-    for i, sample in enumerate(my_dataset):
-        print(i, "image shape:", sample['image'].shape,
-              "points shape:", sample['points'].shape,
-              )
-        cv2.destroyAllWindows()
+    i = 50000
+    sample = my_dataset.__getitem__(i)
+    print(i, "image shape:", sample['image'].shape,
+          "points shape:", sample['points'].shape,
+          "points", sample['points']
+          )
+    # for i, sample in enumerate(my_dataset):
+    #     print(i, "image shape:", sample['image'].shape,
+    #           "points shape:", sample['points'].shape,
+    #           )
+    #     break
 
 if __name__ == "__main__":
     main()
