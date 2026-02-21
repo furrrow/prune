@@ -80,7 +80,7 @@ class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 split_json, mode, num_points, verbose, transform=None):
+                 split_json, mode, num_points, verbose, plot_imgs, transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
@@ -100,6 +100,7 @@ class ChopPreferenceDataset(Dataset):
         self.split_json = split_json
         self.mode = mode
         self.verbose = verbose
+        self.plot_imgs = plot_imgs
         self.transform = transform
         # if os.path.exists(self.split_json):
         #     with open(self.split_json, 'r') as f:
@@ -164,7 +165,7 @@ class ChopPreferenceDataset(Dataset):
         elif "Spot" in bag_name:
             robot_name="spot"
         else:
-            print("Error, robot type unclear")
+            raise ValueError('Error, robot type unclear.')
         img_path = os.path.join(self.image_root, bag_name)
         img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
         img_path = os.path.join(img_path, img_name)
@@ -175,26 +176,27 @@ class ChopPreferenceDataset(Dataset):
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[0])], num_points=self.num_points)
         path_data = pref_dict['paths'][ranking_list[0]]
-        pref_img = self.overlay_trajectory(image, path_data, color=color_dict['GREEN'], robot_name=robot_name)
+        stop_pref = pref_dict['stop']
+        pref_img = self.overlay_trajectory(image, path_data, color=color_dict['GREEN'], robot_name=robot_name, bypass=stop_pref)
         # draw overlay of bad trajectory
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[1])], num_points=self.num_points)
         path_data = pref_dict['paths'][ranking_list[1]]
-        rej_img = self.overlay_trajectory(image, path_data, color=color_dict['RED'], robot_name=robot_name)
-
-        fig, ax = plt.subplots(2, 1)
-        pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
-        rej_view = cv2.cvtColor(rej_img, cv2.COLOR_BGR2RGB)
-        ax[0].imshow(pref_view)
-        ax[1].imshow(rej_view)
-        plt.show(block=True)
+        rej_img = self.overlay_trajectory(image, path_data, color=color_dict['RED'], robot_name=robot_name, bypass=stop_pref)
+        if self.plot_imgs:
+            fig, ax = plt.subplots(2, 1)
+            pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
+            rej_view = cv2.cvtColor(rej_img, cv2.COLOR_BGR2RGB)
+            ax[0].imshow(pref_view)
+            ax[1].imshow(rej_view)
+            plt.show(block=True)
 
         sample = {
-            'image': np.expand_dims(image, 0),
-            'preferred': np.expand_dims(pref_img, 0),
-            'rejected': np.expand_dims(rej_img, 0),
-            'points': np.expand_dims(np.array(points_list), 0),
-            'left_boundaries': np.expand_dims(np.array(left_boundaries), 0),
-            'right_boundaries': np.expand_dims(np.array(right_boundaries), 0),
+            'image': image,
+            'preferred': pref_img,
+            'rejected': rej_img,
+            'points': np.array(points_list),
+            'left_boundaries': np.array(left_boundaries),
+            'right_boundaries': np.array(right_boundaries),
         }
 
         if self.transform:
@@ -202,17 +204,19 @@ class ChopPreferenceDataset(Dataset):
 
         return sample
 
-    def overlay_trajectory(self, image, path_data, color, robot_name):
+    def overlay_trajectory(self, image, path_data, color, robot_name, bypass):
 
         img = image.copy()
+        if bypass:
+            return img
         img_h, img_w = img.shape[:2]
-        left_boundary = path_data['left_boundary']
-        right_boundary = path_data['right_boundary']
+        left_boundary = np.array(path_data['left_boundary'])
+        right_boundary = np.array(path_data['right_boundary'])
         left_2d = clean_2d(
-            project_clip(np.array(left_boundary), self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
+            project_clip(left_boundary, self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
             img_w, img_h)
         right_2d = clean_2d(
-            project_clip(np.array(right_boundary), self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
+            project_clip(right_boundary, self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
             img_w, img_h)
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
         draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.35, fill_color=color, edge_thickness=2)
@@ -273,6 +277,12 @@ def main():
         default=True,
         help="show print statements",
     )
+    parser.add_argument(
+        "--plot-imgs",
+        type=str,
+        default=True,
+        help="plot dataloader graphs, set to false unless debug",
+    )
     args = parser.parse_args()
 
     my_dataset = ChopPreferenceDataset(preference_root=args.preference_root,
@@ -282,6 +292,7 @@ def main():
                                        split_json=args.test_train_split_json,
                                        mode=args.mode,
                                        verbose=args.verbose,
+                                       plot_imgs=args.plot_imgs,
                                        num_points=args.num_points,
                                       )
     for i, sample in enumerate(my_dataset):
