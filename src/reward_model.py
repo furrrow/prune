@@ -43,12 +43,12 @@ MODEL_TO_NUM_LAYERS = {
 
 
 class PairwiseRewardModel(nn.Module):
-    def __init__(self, num_heads, dropout=0.1):
+    def __init__(self, num_heads, dropout=0.1, use_cls=True):
         super().__init__()
         self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
         self.num_heads = num_heads
         self.dropout = dropout
-        self.use_cls = True
+        self.use_cls = use_cls
 
         # Load DINOv3
         print("loading model", self.model_name)
@@ -64,6 +64,11 @@ class PairwiseRewardModel(nn.Module):
         self.multihead_attn = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads,
                                                     batch_first=True, dropout=dropout)
         self.attn_norm = nn.LayerNorm(self.hidden_dim)
+
+        # patch feature distillation
+        self.patch_conv1 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=5, stride=2)
+        self.patch_conv2 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=3, stride=2)
+        self.patch_conv3 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=2)
 
         # Reward Prediction Head
         self.reward_head = nn.Sequential(
@@ -102,18 +107,31 @@ class PairwiseRewardModel(nn.Module):
             # [batch_size, 196, 384]
             original_patch_features = orig_output.last_hidden_state[:, 1 + self.model.config.num_register_tokens:, :]
             annotated_patch_features = annotated_output.last_hidden_state[:, 1 + self.model.config.num_register_tokens:, :]
-            batch_size = original_patch_features.shape[0]
-            # need a better way to handle the 14x14 features
-            original_patch_features = original_patch_features.view(batch_size, -1)
-            annotated_patch_features = annotated_patch_features.view(batch_size, -1)
-            # num_patches_height, num_patches_width = img_height // patch_size, img_width // patch_size
+            batch_size, _, img_height, img_width = orig_input.pixel_values.shape
+            patch_size = self.model.config.patch_size
+            num_patches_height, num_patches_width = img_height // patch_size, img_width // patch_size
             # num_patches_flat = num_patches_height * num_patches_width
             # to unflatten: patch_features_flat.unflatten(1, (num_patches_height, num_patches_width))
+            original_patch_features = original_patch_features.unflatten(1, (num_patches_height, num_patches_width))
+            annotated_patch_features = annotated_patch_features.unflatten(1, (num_patches_height, num_patches_width))
+            # channel first
+            original_patch_features = torch.movedim(original_patch_features, 3, 1)
+            annotated_patch_features = torch.movedim(annotated_patch_features, 3, 1)
+
+            original_patch_features = self.patch_conv1(original_patch_features)
+            original_patch_features = self.patch_conv2(original_patch_features)
+            original_patch_features = self.patch_conv3(original_patch_features)
+            original_patch_features = original_patch_features.squeeze(-1).squeeze(-1)
+
+            annotated_patch_features = self.patch_conv1(annotated_patch_features)
+            annotated_patch_features = self.patch_conv2(annotated_patch_features)
+            annotated_patch_features = self.patch_conv3(annotated_patch_features)
+            annotated_patch_features = annotated_patch_features.squeeze(-1).squeeze(-1)
 
         # Self-Attention on Vision Features
         attn_output, _ = self.multihead_attn(original_patch_features, annotated_patch_features, original_patch_features)  # Shape: (batch_size, num_patches, hidden_dim)
         attn_output = self.attn_norm(attn_output)  # Normalize After Self-Attention
 
         # Predict rewards for all 25 actions
-        rewards = self.reward_head(attn_output).squeeze(-1)  # (batch_size, 25)
+        rewards = self.reward_head(attn_output).squeeze(-1)  # (batch_size)
         return rewards

@@ -100,6 +100,7 @@ def main():
     dropout = 0.1
     use_wandb = False
     save_model = False
+    use_cls = False
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -115,6 +116,7 @@ def main():
         "save_model": save_model,
         "batch_print_freq": batch_print_freq,
         "dropout": dropout,
+        "use_cls": use_cls,
         "warmup_epochs": 5,
         "cosine_LR_T": 10,
         "cosine_LR_mult": 2,
@@ -159,7 +161,7 @@ def main():
     run_name = f"{exp_name}_lr_{LEARNING_RATE}"
     checkpoint_dir = os.path.join(checkpoint_dir, run_name)
     # Define Model, Loss, Optimizer
-    model = PairwiseRewardModel(num_heads=num_heads, dropout=dropout).to(device)
+    model = PairwiseRewardModel(num_heads=num_heads, dropout=dropout, use_cls=use_cls).to(device)
     criterion = bradley_terry_loss
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-3)
     # Define warmup scheduler
