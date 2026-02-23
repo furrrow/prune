@@ -1,28 +1,27 @@
 # Import the W&B Python Library and log into W&B
 import wandb
-from train import main as train_main
 
 # 1: Define objective/training function
 def objective(config):
     score = config.x**3 + config.y
     return score
 
-project_name = "Prune"
+def main():
+    with wandb.init(project="my-first-sweep") as run:
+        score = objective(run.config)
+        run.log({"score": score})
 
 # 2: Define the search space
 sweep_configuration = {
     "method": "random",
-    "name": "dual_rm_sweep",
-    "metric": {"goal": "minimize", "name": "charts/train_loss"},
+    "metric": {"goal": "minimize", "name": "score"},
     "parameters": {
-        "batch_size": {"values": [16, 32, 64]},
-        "epochs": {"values": [1, 2, 3]},
-        "lr": {"max": 0.1, "min": 0.0001},
-        "use_cls": {"values": [True, False]},
+        "x": {"max": 0.1, "min": 0.01},
+        "y": {"values": [1, 3, 7]},
     },
 }
 
 # 3: Start the sweep
-sweep_id = wandb.sweep(sweep=sweep_configuration, project=project_name)
+sweep_id = wandb.sweep(sweep=sweep_configuration, entity="jianyu34-university-of-maryland", project="Prune")
 
-wandb.agent(sweep_id, function=train_main(), count=2)
+wandb.agent(sweep_id, function=main, count=10)

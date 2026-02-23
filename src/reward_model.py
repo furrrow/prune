@@ -43,7 +43,7 @@ MODEL_TO_NUM_LAYERS = {
 
 
 class PairwiseRewardModel(nn.Module):
-    def __init__(self, hidden_dim, num_heads, dropout=0.1, use_cls=True):
+    def __init__(self, hidden_dim, num_heads, dropout=0.1, use_cls=True, verbose=True):
         super().__init__()
         self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
         self.num_heads = num_heads
@@ -51,13 +51,15 @@ class PairwiseRewardModel(nn.Module):
         self.use_cls = use_cls
 
         # Load DINOv3
-        print("loading model", self.model_name)
+        if verbose:
+            print("loading model", self.model_name)
         self.processor = AutoImageProcessor.from_pretrained(self.model_name)
         self.model = AutoModel.from_pretrained(self.model_name)
         self.patch_size = self.model.config.patch_size
-        print(self.model)
-        print("Patch size:", self.patch_size)  # 16
-        print("Num register tokens:", self.model.config.num_register_tokens)  # 4
+        if verbose:
+            print(self.model)
+            print("Patch size:", self.patch_size)  # 16
+            print("Num register tokens:", self.model.config.num_register_tokens)  # 4
         self.hidden_dim = 384 # fixed for DINOv3? check this
 
         # Self-Attention Over Vision Features

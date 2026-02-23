@@ -80,14 +80,13 @@ class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 split_json, mode, num_points, verbose, plot_imgs, transform=None):
+                 mode, verbose, plot_imgs, num_points=10, transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
             image_root (string): Directory of all SCAND images (not rosbags).\
             img_extension (string): Extension of image files, e.g. png
             calib_file (string): location of calibration file for intrinsics & extrinsics
-            split_json (string): Path to the JSON file defining the train/test split.
             mode (string): 'train' or 'test'
             num_points (int): number of points per trajectory to resample to
             transform (callable, optional): Optional transform to be applied
@@ -97,15 +96,10 @@ class ChopPreferenceDataset(Dataset):
         self.image_root = image_root
         self.img_extension = img_extension
         self.calib_file = calib_file
-        self.split_json = split_json
         self.mode = mode
         self.verbose = verbose
         self.plot_imgs = plot_imgs
         self.transform = transform
-        # if os.path.exists(self.split_json):
-        #     with open(self.split_json, 'r') as f:
-        #         self.bag_test_train_lookup = json.load(f)
-        #         print(f"{self.split_json} loaded, {len(self.bag_test_train_lookup)} entries.")
         self.json_paths = Path(self.preference_root) / self.mode
         self.glob_list = sorted(glob.glob(f"{self.json_paths}/**/*.json", recursive=True))
         self.num_points = num_points
