@@ -97,7 +97,7 @@ def main():
     checkpoint_freq = 10
     gradient_log_freq = 50
     dropout = 0.1
-    use_wandb = True
+    use_wandb = False
     save_model = False
     use_cls = True
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

@@ -107,7 +107,7 @@ class ChopPreferenceDataset(Dataset):
         #         self.bag_test_train_lookup = json.load(f)
         #         print(f"{self.split_json} loaded, {len(self.bag_test_train_lookup)} entries.")
         self.json_paths = Path(self.preference_root) / self.mode
-        self.glob_list = sorted(glob.glob(f"{self.preference_root}/**/*.json", recursive=True))
+        self.glob_list = sorted(glob.glob(f"{self.json_paths}/**/*.json", recursive=True))
         self.num_points = num_points
         with open(self.calib_file, "r") as f:
             calib_data = json.load(f)
@@ -139,8 +139,20 @@ class ChopPreferenceDataset(Dataset):
             idx = idx.tolist()
         # preferences
         json_path = self.glob_list[idx]
-        with open(json_path, 'r') as f:
-            pref_dict = json.load(f)
+        try:
+            with open(json_path, 'r') as f:
+                pref_dict = json.load(f)
+                # print(f"opened {json_path}")
+        except FileNotFoundError:
+            print(f"File not found {json_path}")
+
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON format {json_path}")
+            print(f"Line {e.lineno}, Column {e.colno}")
+            print(e)
+
+        except Exception as e:
+            print(f"Unexpected error in loading {json_path}", e)
         ranking_list = list(pref_dict['preference'])
         points_list = []
         left_boundaries = []
