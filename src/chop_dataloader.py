@@ -169,8 +169,12 @@ class ChopPreferenceDataset(Dataset):
         img_path = os.path.join(self.image_root, bag_name)
         img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
         img_path = os.path.join(img_path, img_name)
-        image = cv2.imread(img_path)
-
+        if os.path.exists(img_path):
+            image = cv2.imread(img_path)
+        else:
+            print(f"warning, idx {idx} img not found: {img_path}")
+            # self.glob_list.pop(idx)
+            return None
         # draw overlay of preferred trajectory
         if self.verbose:
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
@@ -212,12 +216,17 @@ class ChopPreferenceDataset(Dataset):
         img_h, img_w = img.shape[:2]
         left_boundary = np.array(path_data['left_boundary'])
         right_boundary = np.array(path_data['right_boundary'])
+        if (len(left_boundary.shape) < 2) or (len(right_boundary.shape) < 2):
+            print("insufficient boundary in")
+            print(path_data)
+            return img
         left_2d = clean_2d(
             project_clip(left_boundary, self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
             img_w, img_h)
         right_2d = clean_2d(
             project_clip(right_boundary, self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
             img_w, img_h)
+
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
         draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.35, fill_color=color, edge_thickness=2)
         return img
@@ -262,7 +271,7 @@ def main():
     parser.add_argument(
         "--mode",
         type=str,
-        default="train",
+        default="test",
         help="train or test",
     )
     parser.add_argument(

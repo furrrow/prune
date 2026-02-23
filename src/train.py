@@ -85,11 +85,10 @@ def main():
     # checkpoint_dir = "/fs/nexus-scratch/jianyu34/Projects/HALO/checkpoints/"
     checkpoint_dir = "../models/checkpoints/"
     load_checkpoint_path = ""
-    BATCH_SIZE = 8  # 288=48.6GB 256=43GB
-    LEARNING_RATE = 2.5e-4
-    HIDDEN_DIM = 768
+    BATCH_SIZE = 512  # 512 = 14GB
+    LEARNING_RATE = 2.5e-3
+    HIDDEN_DIM = 384 # 384, should be the same as number of channels from DinoV3
     N_EPOCHS = 1
-    train_val_split = 0.8
     num_workers = 1
     num_queries = 1
     num_heads = 4
@@ -98,9 +97,9 @@ def main():
     checkpoint_freq = 10
     gradient_log_freq = 50
     dropout = 0.1
-    use_wandb = False
+    use_wandb = True
     save_model = False
-    use_cls = False
+    use_cls = True
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -111,7 +110,6 @@ def main():
         "epochs": N_EPOCHS,
         "num_queries": num_queries,
         "hidden_dim": HIDDEN_DIM,
-        "train_val_split": train_val_split,
         "num_workers": num_workers,
         "save_model": save_model,
         "batch_print_freq": batch_print_freq,
@@ -161,7 +159,7 @@ def main():
     run_name = f"{exp_name}_lr_{LEARNING_RATE}"
     checkpoint_dir = os.path.join(checkpoint_dir, run_name)
     # Define Model, Loss, Optimizer
-    model = PairwiseRewardModel(num_heads=num_heads, dropout=dropout, use_cls=use_cls).to(device)
+    model = PairwiseRewardModel(hidden_dim=HIDDEN_DIM, num_heads=num_heads, dropout=dropout, use_cls=use_cls).to(device)
     criterion = bradley_terry_loss
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-3)
     # Define warmup scheduler
