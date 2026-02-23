@@ -188,6 +188,9 @@ class ChopPreferenceDataset(Dataset):
             # self.glob_list.pop(idx)
             return None
         # draw overlay of preferred trajectory
+        if image is None:
+            print("Error! Image is None, returning...", img_path)
+            return None
         if self.verbose:
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[0])], num_points=self.num_points)
