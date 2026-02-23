@@ -5,26 +5,26 @@
 image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
 preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
 calibration_file : "../config/tf.json"
-sweep: true
 image_ext: "png"
-verbose: true
+verbose: false
 plot_imgs: false
 device: "cuda"
 project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
 learning_rate: 2.5e-3
-batch_size: 512   # 512 = 14GB
+batch_size: 512   # 512 = 14GB VRAM, 50GB RAM
 epochs: 5
 num_queries: 1
 hidden_dim: 384
-num_workers: 4
+num_workers: 0  # recommend no more than 2 @ batch_size 512
 num_heads: 4
 save_mode": false
 batch_print_freq: 5
 checkpoint_freq: 5
 dropout: 0.1
-use_cls: True
-use_wandb: false
+sweep: true
+use_cls: true
+use_wandb: true
 warmup_epochs: 5
 cosine_LR_T: 10
 cosine_LR_mult: 2

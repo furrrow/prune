@@ -33,7 +33,7 @@ def main():
     batch_size = config['batch_size']
     n_epochs = config['epochs']
     use_wandb = config['use_wandb']
-
+    verbose = config['verbose']
     # Get the current time
     now = datetime.datetime.now()
 
@@ -69,7 +69,7 @@ def main():
                                           image_root=config['image_root'],
                                           calib_file=config['calibration_file'],
                                           img_extension=config['image_ext'],
-                                          mode="test",
+                                          mode="train",
                                           verbose=False,
                                           plot_imgs=config['plot_imgs'],
                                           )
@@ -87,20 +87,20 @@ def main():
     # val_sampler = WeightedRandomSampler(weights=val_dataset.sample_weights, num_samples=len(val_dataset),
     #                                     replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=config['num_workers'], pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=config['num_workers'], pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=config['num_workers'])
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=1)
 
     # Define warmup scheduler
-    warmup_epochs = run_config['warmup_epochs']
-    warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
-                                                   total_iters=warmup_epochs)
-    cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=run_config['cosine_LR_T'],
-                                                                      T_mult=run_config['cosine_LR_mult'], eta_min=5e-6)
-    scheduler = optim.lr_scheduler.SequentialLR(
-        optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[warmup_epochs]
-    )
+    # warmup_epochs = run_config['warmup_epochs']
+    # warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
+    #                                                total_iters=warmup_epochs)
+    # cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=run_config['cosine_LR_T'],
+    #                                                                   T_mult=run_config['cosine_LR_mult'], eta_min=5e-6)
+    # scheduler = optim.lr_scheduler.SequentialLR(
+    #     optimizer,
+    #     schedulers=[warmup_scheduler, cosine_scheduler],
+    #     milestones=[warmup_epochs]
+    # )
 
     os.makedirs(checkpoint_dir, exist_ok=True)
     arch_path = f"{checkpoint_dir}/reward_model_architecture.txt"
@@ -129,7 +129,7 @@ def main():
                 print("Missing Layers (not in checkpoint):", len(missing_layers), total_layers)
                 # print(checkpoint['optimizer_state_dict'].keys())
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                # scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 start_epoch = checkpoint['epoch']
                 print(f"Loaded checkpoint from {load_checkpoint_path} at epoch {start_epoch}")
             else:
@@ -167,10 +167,12 @@ def main():
             # Backpropagation
             loss.backward()
             optimizer.step()
-
+            if verbose:
+                print(f"global_step {global_step} batch_count {batch_count} charts/train_loss {loss.item():.4f}")
             train_loss += loss.item()
             if use_wandb:
-                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
+                # run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
+                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": {optimizer.param_groups[0]['lr']}}
                     , global_step)
             batch_count += 1
             global_step += 1
@@ -185,31 +187,34 @@ def main():
         if use_wandb:
             run.log({"charts/avg_train_loss": avg_train_loss, "epoch": epoch}, global_step)
 
-        # # Validation Loop
-        # model.eval()
-        # val_loss = 0.0
-        # with torch.no_grad():
-        #     for batch in val_loader:
-        #         original = batch["image"].to(device)
-        #         preferred = batch["preferred"].to(device)
-        #         rejected = batch["rejected"].to(device)
-        #         original = model.processor(original, return_tensors="pt")
-        #         preferred = model.processor(preferred, return_tensors="pt")
-        #         rejected = model.processor(rejected, return_tensors="pt")
-        #         preferred_reward = model(original, preferred)
-        #         rejected_reward = model(original, rejected)
-        #         loss = criterion(preferred_reward, rejected_reward)
-        #         val_loss += loss.item()
-        #
-        # avg_val_loss = val_loss / len(val_loader)
-        # if use_wandb:
-        #     run.log(
-        #     {"charts/avg_val_loss": avg_val_loss, "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
-        #     , global_step)
-        # # Print Epoch Results
-        # print(f"Epoch [{epoch + 1}/{N_EPOCHS}] | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+        # Validation Loop
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for batch in val_loader:
+                original = batch["image"].to(device)
+                preferred = batch["preferred"].to(device)
+                rejected = batch["rejected"].to(device)
+                original = model.processor(original, return_tensors="pt")
+                preferred = model.processor(preferred, return_tensors="pt")
+                rejected = model.processor(rejected, return_tensors="pt")
+                preferred_reward = model(original, preferred)
+                rejected_reward = model(original, rejected)
+                loss = criterion(preferred_reward, rejected_reward)
+                val_loss += loss.item()
+                if verbose:
+                    print(f"global_step {global_step} batch_count {batch_count} val_loss {loss.item():.4f}")
 
-        scheduler.step()  # Adjust learning rate
+        avg_val_loss = val_loss / len(val_loader)
+
+        if use_wandb:
+            run.log(
+            {"charts/avg_val_loss": avg_val_loss, "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
+            , global_step)
+        # Print Epoch Results
+        print(f"! End of epoch ({epoch + 1}/{n_epochs}) | Avg Train Loss: {avg_train_loss:.4f} | Avg Val Loss: {avg_val_loss:.4f}")
+
+        # scheduler.step()  # Adjust learning rate
 
         # scheduler.step(avg_val_loss)  # Adjust learning rate
 
@@ -223,7 +228,7 @@ def main():
                 'epoch': epoch + 1,
                 'model_state_dict': trainable_state_dict,
                 'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
+                # 'scheduler_state_dict': scheduler.state_dict(),
                 'train_loss': avg_train_loss,
                 # 'val_loss': avg_val_loss
             }, checkpoint_path)

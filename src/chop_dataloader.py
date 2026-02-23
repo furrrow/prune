@@ -226,8 +226,7 @@ class ChopPreferenceDataset(Dataset):
         left_boundary = np.array(path_data['left_boundary'])
         right_boundary = np.array(path_data['right_boundary'])
         if (len(left_boundary.shape) < 2) or (len(right_boundary.shape) < 2):
-            print("insufficient boundary in")
-            print(path_data)
+            print(f"insufficient boundary at {path_data['timestamp']}, left_boundary: {left_boundary.shape} right_boundary: {right_boundary.shape}")
             return img
         left_2d = clean_2d(
             project_clip(left_boundary, self.T_cam_from_base[robot_name], self.K, self.dist, img_h, img_w),
