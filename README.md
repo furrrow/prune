@@ -23,7 +23,19 @@ please check out the documentation
 https://docs.astral.sh/uv/guides/projects/#managing-dependencies
 or just run 
 ```console
-uv
+uv sync
+```
+Please double-check data directories and hyperparameters in [config/setting.yaml](config/setting.yaml)
+
+Before you run the script, you will need to use the command line to log in to both huggingface and also weights and biases
+```console
+uv hf auth login
+wandb login --relogin
+```
+
+To train, one can run
+```console
+python src/train.py
 ```
 
 ### Json file breakdown:

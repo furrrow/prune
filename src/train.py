@@ -58,7 +58,7 @@ def main():
     # Define Model, Loss, Optimizer
     model = PairwiseRewardModel(hidden_dim=config['hidden_dim'], num_heads=config['num_heads'],
                                 dropout=config['dropout'],
-                                use_cls=use_cls, verbose=not config['sweep']).to(device)
+                                use_cls=use_cls, verbose=config['verbose']).to(device)
     criterion = bradley_terry_loss
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
     if use_wandb:
@@ -90,16 +90,16 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
     # Define warmup scheduler
-    # warmup_epochs = run_config['warmup_epochs']
-    # warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
-    #                                                total_iters=warmup_epochs)
-    # cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=run_config['cosine_LR_T'],
-    #                                                                   T_mult=run_config['cosine_LR_mult'], eta_min=5e-6)
-    # scheduler = optim.lr_scheduler.SequentialLR(
-    #     optimizer,
-    #     schedulers=[warmup_scheduler, cosine_scheduler],
-    #     milestones=[warmup_epochs]
-    # )
+    warmup_epochs = run_config['warmup_epochs']
+    warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
+                                                   total_iters=warmup_epochs)
+    cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=run_config['cosine_LR_T'],
+                                                                      T_mult=run_config['cosine_LR_mult'], eta_min=5e-6)
+    scheduler = optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_epochs]
+    )
 
     os.makedirs(checkpoint_dir, exist_ok=True)
     arch_path = f"{checkpoint_dir}/reward_model_architecture.txt"
@@ -170,8 +170,7 @@ def main():
                 print(f"global_step {global_step} batch_count {batch_count} charts/train_loss {loss.item():.4f}")
             train_loss += loss.item()
             if use_wandb:
-                # run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
-                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": {optimizer.param_groups[0]['lr']}}
+                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
                     , global_step)
             batch_count += 1
             global_step += 1
