@@ -13,16 +13,16 @@ project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
 learning_rate: 2.5e-3
 batch_size: 512   # 512 = 14GB VRAM, 50GB RAM
-epochs: 5
+epochs: 1
 num_queries: 1
 hidden_dim: 384
-num_workers: 0  # recommend no more than 2 @ batch_size 512
+num_workers: 3  # recommend no more than 3 @ batch_size 512
 num_heads: 4
 save_mode": false
 batch_print_freq: 5
 checkpoint_freq: 5
 dropout: 0.1
-sweep: true
+sweep: false
 use_cls: true
 use_wandb: true
 warmup_epochs: 5

@@ -10,8 +10,7 @@ import datetime
 import wandb
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, WeightedRandomSampler
-import argparse
-from pathlib import Path
+from tqdm import tqdm
 import yaml
 import os
 
@@ -88,7 +87,7 @@ def main():
     #                                     replacement=True)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=config['num_workers'])
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=1)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
     # Define warmup scheduler
     # warmup_epochs = run_config['warmup_epochs']
@@ -147,7 +146,7 @@ def main():
         train_loss = 0.0
         batch_count = 0
 
-        for batch in train_loader:
+        for batch in tqdm(train_loader, desc="training loop..."):
             original = batch["image"].to(device)
             preferred = batch["preferred"].to(device)
             rejected = batch["rejected"].to(device)
@@ -191,7 +190,7 @@ def main():
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for batch in val_loader:
+            for batch in tqdm(val_loader, desc="validation loop..."):
                 original = batch["image"].to(device)
                 preferred = batch["preferred"].to(device)
                 rejected = batch["rejected"].to(device)

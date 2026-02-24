@@ -115,9 +115,19 @@ class ChopPreferenceDataset(Dataset):
         self.K, self.dist, self.T_base_from_cam["spot"] = load_calibration(self.calib_file, fx, fy, cx, cy, mode="spot")
         self.T_cam_from_base["jackal"] = np.linalg.inv(self.T_base_from_cam["jackal"])
         self.T_cam_from_base["spot"] = np.linalg.inv(self.T_base_from_cam["spot"])
+        self.verified_list = []
+        for json_path in tqdm(self.glob_list, desc="verifying preference-image matching"):
+            stem, json_file = os.path.split(json_path)
+            stem, bag_name = os.path.split(stem)
+            img_path = os.path.join(self.image_root, bag_name)
+            img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
+            img_path = os.path.join(img_path, img_name)
+            # verify preference exists:
+            if os.path.exists(json_path) and os.path.exists(img_path):
+                self.verified_list.append((json_path, img_path))
 
     def __len__(self):
-        return len(self.glob_list)
+        return len(self.verified_list)
 
     def __getitem__(self, idx, pick_mode="two"):
         """
@@ -132,7 +142,7 @@ class ChopPreferenceDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         # preferences
-        json_path = self.glob_list[idx]
+        json_path, img_path = self.verified_list[idx]
         try:
             with open(json_path, 'r') as f:
                 pref_dict = json.load(f)
@@ -172,9 +182,7 @@ class ChopPreferenceDataset(Dataset):
             robot_name="spot"
         else:
             raise ValueError('Error, robot type unclear.')
-        img_path = os.path.join(self.image_root, bag_name)
-        img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
-        img_path = os.path.join(img_path, img_name)
+
         if os.path.exists(img_path):
             image = cv2.imread(img_path)
         else:
