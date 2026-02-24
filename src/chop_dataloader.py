@@ -123,7 +123,7 @@ class ChopPreferenceDataset(Dataset):
                 self.verified_pairs = json.load(file)
             print(f"{self.pair_scratch_file} loaded")
         else:
-            for idx, json_path in enumerate(tqdm(self.glob_list, desc="verifying preference-image matching")):
+            for json_path in tqdm(self.glob_list, desc="verifying preference-image matching"):
                 stem, json_file = os.path.split(json_path)
                 stem, bag_name = os.path.split(stem)
                 img_path = os.path.join(self.image_root, bag_name)
@@ -131,7 +131,7 @@ class ChopPreferenceDataset(Dataset):
                 img_path = os.path.join(img_path, img_name)
                 # verify preference exists:
                 if os.path.exists(json_path) and os.path.exists(img_path):
-                    self.verified_pairs[str(idx)] = (json_path, img_path)
+                    self.verified_pairs[str(len(self.verified_pairs))] = (json_path, img_path)
             with open(self.pair_scratch_file, "w") as f:
                 json.dump(self.verified_pairs, f, indent=4)
 

@@ -17,7 +17,7 @@ import os
 from src.chop_dataloader import ChopPreferenceDataset
 from src.reward_model import PairwiseRewardModel
 from src.loss_fn import bradley_terry_loss
-
+# export PYTHONPATH=$PYTHONPATH:/path/to/my_project
 def main():
     with open('../config/setting.yaml', 'r') as f:
         config = yaml.load(f, Loader=yaml.SafeLoader)
@@ -48,7 +48,8 @@ def main():
         use_wandb = True
 
     if use_wandb:
-        run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir)
+        run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir,
+                         config=config)
         # update hyperparams from the wandb sweep if there is one:
         if config['sweep']:
             lr = run.config["lr"]

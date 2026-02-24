@@ -25,7 +25,7 @@ batch_print_freq: 5
 checkpoint_freq: 5
 dropout: 0.1
 sweep: false
-use_cls: true
+use_cls: false
 use_wandb: true
 warmup_epochs: 3
 cosine_LR_T: 10
