@@ -2,7 +2,33 @@
 # basic settings file for the project
 
 # Required
-scand_img_root: "/media/jim/Ironwolf/datasets/scand_data/images"
-scand_preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
+image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
+preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
 calibration_file : "../config/tf.json"
+image_ext: "png"
+verbose: false
+plot_imgs: false
+device: "cuda"
+project_name : "Prune"
+entity : "jianyu34-university-of-maryland"
+learning_rate: 2.5e-3
+batch_size: 512   # 512 = 14GB VRAM, 50GB RAM
+epochs: 1
+num_queries: 1
+hidden_dim: 384
+num_workers: 3  # recommend no more than 3 @ batch_size 512
+num_heads: 4
+save_mode": false
+batch_print_freq: 5
+checkpoint_freq: 5
+dropout: 0.1
+sweep: false
+use_cls: true
+use_wandb: true
+warmup_epochs: 5
+cosine_LR_T: 10
+cosine_LR_mult: 2
+gradient_log_freq : 50
+checkpoint_dir : "../models/checkpoints/"
+load_checkpoint_path : ""
 
