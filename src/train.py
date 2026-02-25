@@ -213,8 +213,7 @@ def main():
         # Print Epoch Results
         print(f"! End of epoch ({epoch + 1}/{n_epochs}) | Avg Train Loss: {avg_train_loss:.4f} | Avg Val Loss: {avg_val_loss:.4f}")
 
-        # scheduler.step()  # Adjust learning rate
-
+        scheduler.step()  # Adjust learning rate
         # scheduler.step(avg_val_loss)  # Adjust learning rate
 
         if (epoch + 1) % config['checkpoint_freq'] == 0:
@@ -227,9 +226,9 @@ def main():
                 'epoch': epoch + 1,
                 'model_state_dict': trainable_state_dict,
                 'optimizer_state_dict': optimizer.state_dict(),
-                # 'scheduler_state_dict': scheduler.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'train_loss': avg_train_loss,
-                # 'val_loss': avg_val_loss
+                'val_loss': avg_val_loss
             }, checkpoint_path)
 
             print(f"Checkpoint saved: {checkpoint_path}")
