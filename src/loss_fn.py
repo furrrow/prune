@@ -5,7 +5,7 @@ import torch
 
 def bradley_terry_loss(pref_score, rej_score):
     """
-    log(exp_pref / (exp_pref + exp_rej)) = log(exp_pref) - log(exp_pref + exp_rej)
+    -log(exp_pref / (exp_pref + exp_rej)) =  log(exp_pref + exp_rej) - log(exp_pref)
     the log(exp_pref) further simplifies into just the preference score
     :param pref_score:
     :param rej_score:
@@ -13,7 +13,7 @@ def bradley_terry_loss(pref_score, rej_score):
     """
     log_numerator = pref_score
     log_denominator = torch.log(torch.exp(pref_score) + torch.exp(rej_score))
-    loss = - (log_numerator - log_denominator)
+    loss = log_denominator - log_numerator
     return loss.mean()
 
 
