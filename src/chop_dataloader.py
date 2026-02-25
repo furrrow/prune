@@ -80,7 +80,7 @@ class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 mode, verbose, plot_imgs, num_points=10, transform=None):
+                 mode, verbose, plot_imgs, num_points=10, re_index=False, transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
@@ -103,6 +103,7 @@ class ChopPreferenceDataset(Dataset):
         self.json_paths = Path(self.preference_root) / self.mode
         self.glob_list = sorted(glob.glob(f"{self.json_paths}/**/*.json", recursive=True))
         self.num_points = num_points
+        self.re_index = re_index
         with open(self.calib_file, "r") as f:
             calib_data = json.load(f)
         fx, fy, cx, cy = (calib_data['scand_kinect_intrinsics']['fx'], calib_data['scand_kinect_intrinsics']['fy'],
@@ -115,19 +116,27 @@ class ChopPreferenceDataset(Dataset):
         self.K, self.dist, self.T_base_from_cam["spot"] = load_calibration(self.calib_file, fx, fy, cx, cy, mode="spot")
         self.T_cam_from_base["jackal"] = np.linalg.inv(self.T_base_from_cam["jackal"])
         self.T_cam_from_base["spot"] = np.linalg.inv(self.T_base_from_cam["spot"])
-        self.verified_list = []
-        for json_path in tqdm(self.glob_list, desc="verifying preference-image matching"):
-            stem, json_file = os.path.split(json_path)
-            stem, bag_name = os.path.split(stem)
-            img_path = os.path.join(self.image_root, bag_name)
-            img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
-            img_path = os.path.join(img_path, img_name)
-            # verify preference exists:
-            if os.path.exists(json_path) and os.path.exists(img_path):
-                self.verified_list.append((json_path, img_path))
+        self.pair_scratch_file = f"{mode}_scratch.json"
+        self.verified_pairs = {}
+        if os.path.exists(self.pair_scratch_file) and (self.re_index == False):
+            with open(self.pair_scratch_file, "r") as file:
+                self.verified_pairs = json.load(file)
+            print(f"{self.pair_scratch_file} loaded")
+        else:
+            for json_path in tqdm(self.glob_list, desc="verifying preference-image matching"):
+                stem, json_file = os.path.split(json_path)
+                stem, bag_name = os.path.split(stem)
+                img_path = os.path.join(self.image_root, bag_name)
+                img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
+                img_path = os.path.join(img_path, img_name)
+                # verify preference exists:
+                if os.path.exists(json_path) and os.path.exists(img_path):
+                    self.verified_pairs[str(len(self.verified_pairs))] = (json_path, img_path)
+            with open(self.pair_scratch_file, "w") as f:
+                json.dump(self.verified_pairs, f, indent=4)
 
     def __len__(self):
-        return len(self.verified_list)
+        return len(self.verified_pairs)
 
     def __getitem__(self, idx, pick_mode="two"):
         """
@@ -142,7 +151,7 @@ class ChopPreferenceDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         # preferences
-        json_path, img_path = self.verified_list[idx]
+        json_path, img_path = self.verified_pairs[str(idx)]
         try:
             with open(json_path, 'r') as f:
                 pref_dict = json.load(f)
