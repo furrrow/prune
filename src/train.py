@@ -8,6 +8,7 @@ import os
 import time
 import datetime
 import wandb
+import json
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
@@ -55,7 +56,8 @@ def main():
             lr = run.config["lr"]
             use_cls = run.config['use_cls']
 
-
+    print("model config:")
+    print(json.dumps(config, indent=4))
     # Define Model, Loss, Optimizer
     model = PairwiseRewardModel(hidden_dim=config['hidden_dim'], num_heads=config['num_heads'],
                                 dropout=config['dropout'],
@@ -72,14 +74,16 @@ def main():
                                           mode="train",
                                           verbose=False,
                                           plot_imgs=config['plot_imgs'],
+                                          dataset_len_limit=None,
                                           )
     val_dataset = ChopPreferenceDataset(preference_root=config['preference_root'],
-                                          image_root=config['image_root'],
-                                          calib_file=config['calibration_file'],
-                                          img_extension=config['image_ext'],
-                                          mode="test",
-                                          verbose=False,
-                                          plot_imgs=config['plot_imgs'],
+                                        image_root=config['image_root'],
+                                        calib_file=config['calibration_file'],
+                                        img_extension=config['image_ext'],
+                                        mode="test",
+                                        verbose=False,
+                                        plot_imgs=config['plot_imgs'],
+                                        dataset_len_limit=None,
                                         )
 
     # train_sampler = WeightedRandomSampler(weights=train_dataset.sample_weights, num_samples=len(train_dataset),
@@ -173,6 +177,7 @@ def main():
             if use_wandb:
                 run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
                     , global_step)
+            print({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]})
             batch_count += 1
             global_step += 1
 
@@ -212,7 +217,7 @@ def main():
             , global_step)
         # Print Epoch Results
         print(f"! End of epoch ({epoch + 1}/{n_epochs}) | Avg Train Loss: {avg_train_loss:.4f} | Avg Val Loss: {avg_val_loss:.4f}")
-
+        print({"charts/avg_val_loss": avg_val_loss, "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]})
         scheduler.step()  # Adjust learning rate
         # scheduler.step(avg_val_loss)  # Adjust learning rate
 
