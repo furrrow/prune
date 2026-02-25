@@ -80,7 +80,7 @@ class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 mode, verbose, plot_imgs, num_points=10, re_index=False, transform=None):
+                 mode, verbose, plot_imgs, num_points=10, re_index=False, dataset_len_limit=None, transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
@@ -99,6 +99,7 @@ class ChopPreferenceDataset(Dataset):
         self.mode = mode
         self.verbose = verbose
         self.plot_imgs = plot_imgs
+        self.dataset_len_limit = dataset_len_limit
         self.transform = transform
         self.json_paths = Path(self.preference_root) / self.mode
         self.glob_list = sorted(glob.glob(f"{self.json_paths}/**/*.json", recursive=True))
@@ -136,7 +137,12 @@ class ChopPreferenceDataset(Dataset):
                 json.dump(self.verified_pairs, f, indent=4)
 
     def __len__(self):
-        return len(self.verified_pairs)
+        if self.dataset_len_limit is None:
+            return len(self.verified_pairs)
+        else:
+            len_limit = min(len(self.verified_pairs), int(self.dataset_len_limit))
+            print(f"dataloader artificially limited to len {len_limit}")
+            return len_limit
 
     def __getitem__(self, idx, pick_mode="two"):
         """
