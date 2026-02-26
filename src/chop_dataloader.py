@@ -213,11 +213,12 @@ class ChopPreferenceDataset(Dataset):
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[0])], num_points=self.num_points)
         path_data = pref_dict['paths'][ranking_list[0]]
         stop_pref = pref_dict['stop']
-        pref_img = self.overlay_trajectory(image, path_data, color=color_dict['GREEN'], robot_name=robot_name, bypass=stop_pref)
+        color_key = "GREEN"
+        pref_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
         # draw overlay of bad trajectory
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[1])], num_points=self.num_points)
         path_data = pref_dict['paths'][ranking_list[1]]
-        rej_img = self.overlay_trajectory(image, path_data, color=color_dict['RED'], robot_name=robot_name, bypass=stop_pref)
+        rej_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
         if self.plot_imgs:
             fig, ax = plt.subplots(2, 1)
             pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
@@ -259,7 +260,7 @@ class ChopPreferenceDataset(Dataset):
             img_w, img_h)
 
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
-        draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.35, fill_color=color, edge_thickness=2)
+        draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=1.0, fill_color=color, edge_thickness=2)
         return img
 
 def main():
