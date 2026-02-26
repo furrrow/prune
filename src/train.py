@@ -45,12 +45,15 @@ def main():
     use_cls = config['use_cls']
     exp_name = f"{project_name}_{timestamp}"
     checkpoint_dir = os.path.join(checkpoint_dir, exp_name)
+    save_name = "run"
     if config['sweep']:
         use_wandb = True
 
     if use_wandb:
         run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir,
                          config=config)
+        config['wandb_run_name'] = run.name
+        save_name = run.name
         # update hyperparams from the wandb sweep if there is one:
         if config['sweep']:
             lr = run.config["lr"]
@@ -107,7 +110,7 @@ def main():
     )
 
     os.makedirs(checkpoint_dir, exist_ok=True)
-    arch_path = f"{checkpoint_dir}/reward_model_architecture.txt"
+    arch_path = f"{checkpoint_dir}/{save_name}_model_architecture.txt"
 
     with open(arch_path, "w") as f:
         f.write(str(model))
