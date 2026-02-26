@@ -63,7 +63,7 @@ def main():
     print(json.dumps(config, indent=4))
     # Define Model, Loss, Optimizer
     model = PairwiseRewardModel(hidden_dim=config['hidden_dim'], num_heads=config['num_heads'],
-                                dropout=config['dropout'],
+                                dropout_rate=config['dropout'],
                                 use_cls=use_cls, verbose=config['verbose']).to(device)
     criterion = bradley_terry_loss
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
@@ -180,14 +180,11 @@ def main():
             if use_wandb:
                 run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
                     , global_step)
-            print({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]})
             batch_count += 1
             global_step += 1
 
             if batch_count % config['batch_print_freq'] == 0:
                 SPS = global_step / (time.time() - start_time)
-                print(
-                    f"Epoch [{epoch + 1}/{n_epochs}] | Batch {batch_count} | Train Loss: {loss.item():.4f}, steps per second: {SPS:.3f} | LR: {optimizer.param_groups[0]['lr']}")
                 if use_wandb:
                     run.log({"charts/SPS": SPS, "epoch": epoch}, global_step)
         avg_train_loss = train_loss / len(train_loader)

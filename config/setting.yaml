@@ -15,7 +15,7 @@ learning_rate: 2.5e-3
 batch_size: 512   # 512 = 14GB VRAM, 50GB RAM
 epochs: 5
 num_queries: 1
-hidden_dim: 384
+hidden_dim: 1024 # 384 small, 1024 large.
 num_workers: 3  # recommend no more than 3 @ batch_size 512
 num_heads: 4
 save_mode": false

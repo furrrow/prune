@@ -43,11 +43,13 @@ MODEL_TO_NUM_LAYERS = {
 
 
 class PairwiseRewardModel(nn.Module):
-    def __init__(self, hidden_dim, num_heads, dropout=0.1, use_cls=True, verbose=True):
+    def __init__(self, hidden_dim, num_heads, dropout_rate=0.1, use_cls=True, verbose=True):
         super().__init__()
-        self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
+        # self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
+        # self.model_name = "facebook/dinov3-vitb16-pretrain-lvd1689m"
+        self.model_name = "facebook/dinov3-vitl16-pretrain-lvd1689m"
+        # self.model_name = "facebook/dinov3-vit7b16-pretrain-lvd1689m"
         self.num_heads = num_heads
-        self.dropout = dropout
         self.use_cls = use_cls
 
         # Load DINOv3
@@ -60,12 +62,14 @@ class PairwiseRewardModel(nn.Module):
             print(self.model)
             print("Patch size:", self.patch_size)  # 16
             print("Num register tokens:", self.model.config.num_register_tokens)  # 4
-        self.hidden_dim = 384 # fixed for DINOv3? check this
+        self.hidden_dim = hidden_dim # fixed for DINOv3? check this
 
         # Self-Attention Over Vision Features
-        self.multihead_attn = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads,
-                                                    batch_first=True, dropout=dropout)
+        self.multihead_attn1 = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads, batch_first=True, dropout=dropout_rate)
+        self.multihead_attn2 = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads, batch_first=True, dropout=dropout_rate)
+        self.multihead_attn3 = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads, batch_first=True, dropout=dropout_rate)
         self.attn_norm = nn.LayerNorm(self.hidden_dim)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
         # patch feature distillation
         self.patch_conv1 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=5, stride=2)
@@ -74,8 +78,8 @@ class PairwiseRewardModel(nn.Module):
 
         # Reward Prediction Head
         self.reward_head = nn.Sequential(
-            nn.Linear(self.hidden_dim, 512), nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(512, 128), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(self.hidden_dim, 512), nn.ReLU(), nn.Dropout(dropout_rate),
+            nn.Linear(512, 128), nn.ReLU(), nn.Dropout(dropout_rate),
             nn.Linear(128, 1), )
 
         self._initialize_weights()
@@ -131,9 +135,18 @@ class PairwiseRewardModel(nn.Module):
             annotated_patch_features = annotated_patch_features.squeeze(-1).squeeze(-1)
 
         # Self-Attention on Vision Features
-        attn_output, _ = self.multihead_attn(original_patch_features, annotated_patch_features, original_patch_features)  # Shape: (batch_size, num_patches, hidden_dim)
-        attn_output = self.attn_norm(attn_output)  # Normalize After Self-Attention
+        attn_output, _ = self.multihead_attn1(original_patch_features, annotated_patch_features, original_patch_features)  # Shape: (batch_size, num_patches, hidden_dim)
+        attn_output = self.attn_norm(self.dropout(attn_output))  # Normalize After Self-Attention
+        residual1 = attn_output
 
+        attn_output, _ = self.multihead_attn2(attn_output, attn_output,
+                                              attn_output)
+        attn_output = self.attn_norm(residual1 + self.dropout(attn_output))
+        residual2 = attn_output
+
+        attn_output, _ = self.multihead_attn3(attn_output, attn_output,
+                                              attn_output)
+        attn_output = self.attn_norm(residual2 + self.dropout(attn_output))
         # Predict rewards for all 25 actions
         rewards = self.reward_head(attn_output).squeeze(-1)  # (batch_size)
         return rewards
