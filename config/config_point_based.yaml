@@ -1,0 +1,41 @@
+# setting.yaml
+# basic settings file for the project
+
+# Required
+#image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
+image_root: "/media/beast-gamma/Media/Datasets/SCAND/images/"
+#preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
+preference_root: "/home/beast-gamma/Documents/GAMMA/Projects/prune/datasets"
+verbose: false
+device: "cuda"
+project_name : "Prune"
+entity : "jianyu34-university-of-maryland"
+learning_rate: 2.5e-3
+batch_size: 512   # 512 = 14GB VRAM, 50GB RAM
+epochs: 1024
+d_model: 768
+num_workers: 8  # if local, recommend no more than 3 @ batch_size 512
+prefetch_factor: 8
+batch_print_freq: 1
+checkpoint_freq: 5
+dropout: 0.1
+sweep: false
+use_cls: true
+use_wandb: true
+warmup_epochs: 3
+cosine_LR_T: 10
+cosine_LR_mult: 2
+gradient_log_freq : 500
+checkpoint_dir : "../checkpoints/points_based_rm/"
+load_checkpoint_path : ""
+weight_decay: 1e-4
+image_size : [224, 224]
+resume: false
+resume_checkpoint: ""
+fusion_blocks: 4
+num_blocks: 4
+num_heads: 4
+train_json : "../data/train.json"
+test_json : "../data/test.json"
+use_amp: true
+seed: 42

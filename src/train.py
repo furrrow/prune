@@ -17,7 +17,7 @@ import os
 
 from src.chop_dataloader import ChopPreferenceDataset
 from src.reward_model import PairwiseRewardModel
-from src.loss_fn import bradley_terry_loss
+from losses.loss_fn import bradley_terry_loss
 
 def main():
     with open('../config/setting.yaml', 'r') as f:

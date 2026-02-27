@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
 import numpy as np
@@ -11,13 +10,32 @@ Annotation = MutableMapping[str, Any]
 PathDict = Dict[str, Any]
 
 
-def _get_rankings(annotation: Annotation) -> Optional[List[str]]:
-    """Return ordered path rankings as strings."""
+def _get_rankings(annotation: Annotation) -> Optional[List[int]]:
+    """Return ordered path rankings as integers."""
     preference = annotation.get("preference", [])
-    if not isinstance(preference, Iterable):
+    if not isinstance(preference, Iterable) or isinstance(preference, (str, bytes)):
         return None
-    pref_list = [str(p) for p in preference]
+    try:
+        pref_list = [int(p) for p in preference]
+    except (TypeError, ValueError):
+        return None
     return pref_list if pref_list else None
+
+
+def _build_pairwise_map(ranking: List[int]) -> Dict[str, int]:
+    """
+    Build pairwise winners keyed as "i_j" where i < j.
+    Winner is the path id (i or j) that appears earlier in ranking.
+    """
+    rank_pos = {path_id: idx for idx, path_id in enumerate(ranking)}
+    pairwise_map: Dict[str, int] = {}
+    ids = sorted(ranking)
+    for i, first_id in enumerate(ids):
+        for second_id in ids[i + 1 :]:
+            winner = first_id if rank_pos[first_id] < rank_pos[second_id] else second_id
+            pairwise_map[f"{first_id}_{second_id}"] = winner
+    return pairwise_map
+
 
 def _resample_path(path: np.ndarray, k: int) -> np.ndarray:
     """
@@ -82,14 +100,19 @@ def _process_annotation_file(
     processed: List[Dict[str, Any]] = []
     for stamp, annotation in annotations.items():
         rankings = _get_rankings(annotation)
-        if rankings is None or len(rankings) < 2:
+        if rankings is None or len(rankings) != 4:
             continue
 
         paths: Dict[str, PathDict] = annotation.get("paths") or {}
-        path_0_data = _extract_path(paths.get(rankings[0]), num_points=num_points)
-        path_1_data = _extract_path(paths.get(rankings[1]), num_points=num_points)
-
-        if not path_0_data or not path_1_data:
+        path_map: Dict[str, Dict[str, Any]] = {}
+        missing_ranked_path = False
+        for path_id in rankings:
+            raw_path = paths.get(str(path_id))
+            if not isinstance(raw_path, MutableMapping):
+                missing_ranked_path = True
+                break
+            path_map[str(path_id)] = _extract_path(raw_path, num_points=num_points)
+        if missing_ranked_path:
             continue
 
         image_filename = f"img_{stamp}.{image_ext}"
@@ -99,12 +122,15 @@ def _process_annotation_file(
         image_path = bag_prefix / image_filename
         processed.append(
             {
+                "id": f"{bag_name}_{stamp}",
+                "bag": bag_name,
                 "timestamp": stamp,
                 "frame_idx": annotation.get("frame_idx"),
                 "robot_width": annotation.get("robot_width"),
                 "image_path": str(image_path),
-                "path_0": path_0_data,
-                "path_1": path_1_data,
+                "paths": path_map,
+                "ranking": rankings,
+                "pairwise_map": _build_pairwise_map(rankings),
                 "position": annotation.get("position"),
                 "yaw": annotation.get("yaw"),
                 "stop": annotation.get("stop", False),
@@ -160,7 +186,7 @@ def preprocess_scand(
     default_split: str = "train",
     num_points: int = 8,
 ) -> Tuple[int, int]:
-    """Generate per-split SCAND-A indices, grouping samples by bag within train/test files."""
+    """Generate per-split SCAND-A indices as flat sample lists."""
     split_map = json.load(test_train_split_json.open("r")) if test_train_split_json.exists() else {}
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -179,11 +205,12 @@ def preprocess_scand(
             split = split_map.get(bag_name, default_split)
             writer = train_writer if split == "train" else test_writer
 
-            writer.write({"bag": bag_name, "samples": entries})
-            if writer is train_writer:
-                train_count += len(entries)
-            else:
-                test_count += len(entries)
+            for entry in entries:
+                writer.write(entry)
+                if writer is train_writer:
+                    train_count += 1
+                else:
+                    test_count += 1
 
     return train_count, test_count
 
@@ -231,16 +258,16 @@ def main() -> None:
     args = parser.parse_args()
 
     train_count, test_count = preprocess_scand(
-        args.scand_dir,
-        args.images_root,
-        args.output_dir,
-        args.test_train_split_json,
-        args.image_ext,
-        args.num_points,
+        scand_dir=args.scand_dir,
+        images_root=args.images_root,
+        output_dir=args.output_dir,
+        test_train_split_json=args.test_train_split_json,
+        image_ext=args.image_ext,
+        num_points=args.num_points,
     )
 
-    print(f"Wrote {train_count} train samples to {args.output_dir / 'train.json'} (bag-grouped)")
-    print(f"Wrote {test_count} test samples to {args.output_dir / 'test.json'} (bag-grouped)")
+    print(f"Wrote {train_count} train samples to {args.output_dir / 'train.json'} (flat)")
+    print(f"Wrote {test_count} test samples to {args.output_dir / 'test.json'} (flat)")
 
 
 if __name__ == "__main__":
