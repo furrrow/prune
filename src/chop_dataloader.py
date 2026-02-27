@@ -181,7 +181,9 @@ class ChopPreferenceDataset(Dataset):
         if pick_mode == "two":
             first_trajectory = np.random.randint(0, 3)
             second_trajectory = first_trajectory + 1
-            ranking_list = [str(first_trajectory), str(second_trajectory)]
+            ranking_list = [ranking_list[first_trajectory], ranking_list[second_trajectory]]
+        elif pick_mode == "all":
+            ranking_list = ranking_list
 
         for rank in ranking_list:
             path_data = _extract_path(pref_dict['paths'][str(rank)], num_points=self.num_points)
