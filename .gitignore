@@ -1,13 +1,13 @@
 workspace/*
 !.gitkeep
 
-data/**
-!**/
-!.gitkeep
+# data/**
+# !**/
+# !.gitkeep
 
-models/**
-!**/
-!.gitkeep
+# models/**
+# !**/
+# !.gitkeep
 
 logs/**
 !**/
