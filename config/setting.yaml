@@ -2,10 +2,10 @@
 # basic settings file for the project
 
 # Required
-#image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
-image_root: "/fs/gamma-datasets/SCAND/images"
-#preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
-preference_root: "/fs/nexus-scratch/jianyu34/Downloads/chop_annotations"
+image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
+#image_root: "/fs/gamma-datasets/SCAND/images"
+preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
+#preference_root: "/fs/nexus-scratch/jianyu34/Downloads/chop_annotations"
 calibration_file : "../config/tf.json"
 image_ext: "png"
 verbose: false

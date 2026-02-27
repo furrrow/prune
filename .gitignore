@@ -1,11 +1,11 @@
 workspace/*
 !.gitkeep
 
-data/**
+data/annotations/*
 !**/
 !.gitkeep
 
-models/**
+models/checkpoints/*
 !**/
 !.gitkeep
 
