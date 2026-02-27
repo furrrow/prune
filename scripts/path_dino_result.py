@@ -6,9 +6,7 @@ import os
 import torch
 import json
 
-from cv2 import Mat
-from numpy import dtype, floating, integer, ndarray
-from skimage import io, transform
+from transformers import TorchAoConfig, AutoImageProcessor, AutoModel
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
@@ -80,7 +78,7 @@ class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 mode, verbose, plot_imgs, num_points=10, re_index=False, dataset_len_limit=None, transform=None):
+                 mode, verbose, num_points=10, re_index=False, dataset_len_limit=None, transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
@@ -98,7 +96,6 @@ class ChopPreferenceDataset(Dataset):
         self.calib_file = calib_file
         self.mode = mode
         self.verbose = verbose
-        self.plot_imgs = plot_imgs
         self.dataset_len_limit = dataset_len_limit
         self.transform = transform
         self.json_paths = Path(self.preference_root) / self.mode
@@ -214,18 +211,13 @@ class ChopPreferenceDataset(Dataset):
         path_data = pref_dict['paths'][ranking_list[0]]
         stop_pref = pref_dict['stop']
         color_key = "GREEN"
+        print(color_key)
         pref_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
+
         # draw overlay of bad trajectory
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[1])], num_points=self.num_points)
         path_data = pref_dict['paths'][ranking_list[1]]
         rej_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
-        if self.plot_imgs:
-            fig, ax = plt.subplots(2, 1)
-            pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
-            rej_view = cv2.cvtColor(rej_img, cv2.COLOR_BGR2RGB)
-            ax[0].imshow(pref_view)
-            ax[1].imshow(rej_view)
-            plt.show(block=True)
 
         sample = {
             'image': image,
@@ -260,7 +252,7 @@ class ChopPreferenceDataset(Dataset):
             img_w, img_h)
 
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
-        draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=1.0, fill_color=color, edge_thickness=2)
+        draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=1, fill_color=color, edge_thickness=2)
         return img
 
 def main():
@@ -318,28 +310,59 @@ def main():
         default=True,
         help="show print statements",
     )
-    parser.add_argument(
-        "--plot-imgs",
-        type=str,
-        default=True,
-        help="plot dataloader graphs, set to false unless debug",
-    )
-    args = parser.parse_args()
 
+    args = parser.parse_args()
+    # pull image-preference from dataset
     my_dataset = ChopPreferenceDataset(preference_root=args.preference_root,
                                        image_root=args.image_root,
                                        img_extension=args.image_ext,
                                        calib_file=args.calibration_file,
                                        mode=args.mode,
                                        verbose=args.verbose,
-                                       plot_imgs=args.plot_imgs,
                                        num_points=args.num_points,
                                       )
     idx = 100
     sample = my_dataset.__getitem__(idx)
-    print(idx, "image shape:", sample['image'].shape,
-          "points shape:", sample['points'].shape,
-          )
+    # print(idx, "image shape:", sample['image'].shape,
+    #       "points shape:", sample['points'].shape,
+    #       )
+    image = sample['image']
+    pref_img = sample['preferred']
+
+    # set up dinov3
+    model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
+    processor = AutoImageProcessor.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name)
+    patch_size = model.config.patch_size
+    inputs = processor(images=[image, pref_img], return_tensors="pt")
+    # print("Preprocessed image size:", inputs.pixel_values.shape)  # [1, 3, 224, 224]
+
+    batch_size, _, img_height, img_width = inputs.pixel_values.shape
+    num_patches_height, num_patches_width = img_height // patch_size, img_width // patch_size
+    num_patches_flat = num_patches_height * num_patches_width
+
+    with torch.inference_mode():
+        outputs = model(**inputs)
+
+    last_hidden_states = outputs.last_hidden_state
+    # print("last_hidden_states shape:", last_hidden_states.shape)  # [1, 1 + 4 + 256, 384]
+    assert last_hidden_states.shape == (batch_size, 1 + model.config.num_register_tokens + num_patches_flat,
+                                        model.config.hidden_size)
+
+    cls_token = last_hidden_states[:, 0:1, :]
+    patch_features_flat = last_hidden_states[:, 1 + model.config.num_register_tokens:, :]
+    patch_features = patch_features_flat.unflatten(1, (num_patches_height, num_patches_width))
+    # print("cls_token shape:", cls_token.shape, "patch_features_flat shape:", patch_features_flat.shape)
+    pooled_output = outputs.pooler_output
+    # print("Pooled output shape:", pooled_output.shape)
+    patch_features_diff = torch.norm(patch_features_flat[0] - patch_features_flat[1])
+    print("patch_features_diff", patch_features_diff)
+    fig, ax = plt.subplots(2, 1)
+    original = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
+    ax[0].imshow(original)
+    ax[1].imshow(pref_view)
+    plt.show(block=True)
 
 if __name__ == "__main__":
     main()

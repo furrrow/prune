@@ -8,6 +8,7 @@ import os
 import time
 import datetime
 import wandb
+import json
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
@@ -44,21 +45,26 @@ def main():
     use_cls = config['use_cls']
     exp_name = f"{project_name}_{timestamp}"
     checkpoint_dir = os.path.join(checkpoint_dir, exp_name)
+    save_name = "run"
     if config['sweep']:
         use_wandb = True
 
     if use_wandb:
-        run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir)
+        run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir,
+                         config=config)
+        config['wandb_run_name'] = run.name
+        save_name = run.name
         # update hyperparams from the wandb sweep if there is one:
         if config['sweep']:
             lr = run.config["lr"]
             use_cls = run.config['use_cls']
 
-
+    print("model config:")
+    print(json.dumps(config, indent=4))
     # Define Model, Loss, Optimizer
     model = PairwiseRewardModel(hidden_dim=config['hidden_dim'], num_heads=config['num_heads'],
-                                dropout=config['dropout'],
-                                use_cls=use_cls, verbose=not config['sweep']).to(device)
+                                dropout_rate=config['dropout'],
+                                use_cls=use_cls, verbose=config['verbose']).to(device)
     criterion = bradley_terry_loss
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
     if use_wandb:
@@ -71,14 +77,16 @@ def main():
                                           mode="train",
                                           verbose=False,
                                           plot_imgs=config['plot_imgs'],
+                                          dataset_len_limit=None,
                                           )
     val_dataset = ChopPreferenceDataset(preference_root=config['preference_root'],
-                                          image_root=config['image_root'],
-                                          calib_file=config['calibration_file'],
-                                          img_extension=config['image_ext'],
-                                          mode="test",
-                                          verbose=False,
-                                          plot_imgs=config['plot_imgs'],
+                                        image_root=config['image_root'],
+                                        calib_file=config['calibration_file'],
+                                        img_extension=config['image_ext'],
+                                        mode="test",
+                                        verbose=False,
+                                        plot_imgs=config['plot_imgs'],
+                                        dataset_len_limit=None,
                                         )
 
     # train_sampler = WeightedRandomSampler(weights=train_dataset.sample_weights, num_samples=len(train_dataset),
@@ -90,19 +98,19 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
     # Define warmup scheduler
-    # warmup_epochs = run_config['warmup_epochs']
-    # warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
-    #                                                total_iters=warmup_epochs)
-    # cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=run_config['cosine_LR_T'],
-    #                                                                   T_mult=run_config['cosine_LR_mult'], eta_min=5e-6)
-    # scheduler = optim.lr_scheduler.SequentialLR(
-    #     optimizer,
-    #     schedulers=[warmup_scheduler, cosine_scheduler],
-    #     milestones=[warmup_epochs]
-    # )
+    warmup_epochs = run_config['warmup_epochs']
+    warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
+                                                   total_iters=warmup_epochs)
+    cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=run_config['cosine_LR_T'],
+                                                                      T_mult=run_config['cosine_LR_mult'], eta_min=5e-6)
+    scheduler = optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_epochs]
+    )
 
     os.makedirs(checkpoint_dir, exist_ok=True)
-    arch_path = f"{checkpoint_dir}/reward_model_architecture.txt"
+    arch_path = f"{checkpoint_dir}/{save_name}_model_architecture.txt"
 
     with open(arch_path, "w") as f:
         f.write(str(model))
@@ -170,16 +178,13 @@ def main():
                 print(f"global_step {global_step} batch_count {batch_count} charts/train_loss {loss.item():.4f}")
             train_loss += loss.item()
             if use_wandb:
-                # run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
-                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": {optimizer.param_groups[0]['lr']}}
+                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
                     , global_step)
             batch_count += 1
             global_step += 1
 
             if batch_count % config['batch_print_freq'] == 0:
                 SPS = global_step / (time.time() - start_time)
-                print(
-                    f"Epoch [{epoch + 1}/{n_epochs}] | Batch {batch_count} | Train Loss: {loss.item():.4f}, steps per second: {SPS:.3f} | LR: {optimizer.param_groups[0]['lr']}")
                 if use_wandb:
                     run.log({"charts/SPS": SPS, "epoch": epoch}, global_step)
         avg_train_loss = train_loss / len(train_loader)
@@ -212,9 +217,8 @@ def main():
             , global_step)
         # Print Epoch Results
         print(f"! End of epoch ({epoch + 1}/{n_epochs}) | Avg Train Loss: {avg_train_loss:.4f} | Avg Val Loss: {avg_val_loss:.4f}")
-
-        # scheduler.step()  # Adjust learning rate
-
+        print({"charts/avg_val_loss": avg_val_loss, "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]})
+        scheduler.step()  # Adjust learning rate
         # scheduler.step(avg_val_loss)  # Adjust learning rate
 
         if (epoch + 1) % config['checkpoint_freq'] == 0:
@@ -227,9 +231,9 @@ def main():
                 'epoch': epoch + 1,
                 'model_state_dict': trainable_state_dict,
                 'optimizer_state_dict': optimizer.state_dict(),
-                # 'scheduler_state_dict': scheduler.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'train_loss': avg_train_loss,
-                # 'val_loss': avg_val_loss
+                'val_loss': avg_val_loss
             }, checkpoint_path)
 
             print(f"Checkpoint saved: {checkpoint_path}")
@@ -252,7 +256,7 @@ if __name__ == "__main__":
         # you want to optimize for, in this case "val_acc"
         "metric": {
             "goal": "minimize",
-            "name": "charts/avg_train_loss"
+            "name": "charts/avg_val_loss"
         },
         "parameters": {
             "lr": {"max": 0.005, "min": 0.0001},
@@ -264,6 +268,6 @@ if __name__ == "__main__":
         sweep_id = wandb.sweep(sweep=sweep_configuration, entity=run_config['entity'],
                                project=run_config['project_name'])
         # Start the sweep job
-        wandb.agent(sweep_id, function=main, count=4)
+        wandb.agent(sweep_id, function=main, count=5)
     else:
         main()
