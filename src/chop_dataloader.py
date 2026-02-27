@@ -213,13 +213,13 @@ class ChopPreferenceDataset(Dataset):
         if self.verbose:
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[0])], num_points=self.num_points)
-        path_data = pref_dict['paths'][ranking_list[0]]
+        path_data = pref_dict['paths'][str(ranking_list[0])]
         stop_pref = pref_dict['stop']
         color_key = "GREEN"
         pref_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
         # draw overlay of bad trajectory
         # path_data = _extract_path(pref_dict['paths'][str(ranking_list[1])], num_points=self.num_points)
-        path_data = pref_dict['paths'][ranking_list[1]]
+        path_data = pref_dict['paths'][str(ranking_list[1])]
         rej_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
         if self.plot_imgs:
             fig, ax = plt.subplots(2, 1)
