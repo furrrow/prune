@@ -269,7 +269,7 @@ def main() -> None:
     if rank == 0 and run is not None:
         wandb.watch(
             unwrap_model(model),
-            log="all",
+            log="gradients",
             log_freq=int(config.get("gradient_log_freq", 100)),
         )
 
