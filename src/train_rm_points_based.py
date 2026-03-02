@@ -280,7 +280,8 @@ def main() -> None:
 
     lr = float(config["learning_rate"])
     weight_decay = float(config["weight_decay"])
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
     scaler = torch.amp.GradScaler(enabled=(config["use_amp"] and device.type == "cuda"))
     warmup_epochs = int(config.get("warmup_epochs", 0))
     cosine_t_max = int(config.get("cosine_T_max", max(1, int(config["epochs"]) - warmup_epochs)))

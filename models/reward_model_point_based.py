@@ -36,6 +36,10 @@ class RewardModelPointBased(nn.Module):
             print("loading image feature extractor", self.image_feature_extractor_name)
         self.processor = AutoImageProcessor.from_pretrained(self.image_feature_extractor_name)
         self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
+        if self.freeze_image_encoder:
+            # Important for DDP: frozen params must not require grad.
+            for p in self.image_feature_extractor.parameters():
+                p.requires_grad = False
 
         image_dim = self.image_feature_extractor.config.hidden_size
         if verbose:
