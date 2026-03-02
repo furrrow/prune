@@ -21,7 +21,7 @@ from models.reward_model_point_based import RewardModelPointBased
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser("DDP training for point-based reward model")
-    parser.add_argument("--config", type=Path, help="Path to config.yaml", default=Path("../config/config_point_based.yaml"))
+    parser.add_argument("--config", type=Path, help="Path to config.yaml", default=Path("./config/config_point_based.yaml"))
     return parser.parse_args()
 
 
@@ -160,6 +160,15 @@ def main() -> None:
     if resume_checkpoint is not None and not resume_checkpoint.is_absolute():
         resume_checkpoint = (project_root / resume_checkpoint).resolve()
 
+    use_lmdb = bool(config.get("use_lmdb", False))
+    lmdb_root = Path(config.get("lmdb_root", project_root / "data" / "lmdb_cache"))
+    if not lmdb_root.is_absolute():
+        lmdb_root = (project_root / lmdb_root).resolve()
+    train_lmdb_path = lmdb_root / f"{train_json.stem}.lmdb"
+    test_lmdb_path = lmdb_root / f"{test_json.stem}.lmdb"
+    lmdb_build_if_missing = bool(config.get("lmdb_build_if_missing", True))
+    lmdb_overwrite = bool(config.get("lmdb_overwrite", False))
+
     wandb_dir = Path(config.get("wandb_dir", project_root / "wandb"))
     if not wandb_dir.is_absolute():
         wandb_dir = (project_root / wandb_dir).resolve()
@@ -178,17 +187,42 @@ def main() -> None:
             )
             run_name = run.name or run.id or "wandb_run"
 
+    if use_lmdb and lmdb_build_if_missing:
+        if rank == 0:
+            CHOPDatasetFull.build_lmdb_cache(
+                annotations_path=train_json,
+                images_root=image_root,
+                lmdb_path=train_lmdb_path,
+                image_size=(config["image_size"][0], config["image_size"][1]),
+                use_xy_only=True,
+                overwrite=lmdb_overwrite,
+            )
+            CHOPDatasetFull.build_lmdb_cache(
+                annotations_path=test_json,
+                images_root=image_root,
+                lmdb_path=test_lmdb_path,
+                image_size=(config["image_size"][0], config["image_size"][1]),
+                use_xy_only=True,
+                overwrite=lmdb_overwrite,
+            )
+        if distributed:
+            dist.barrier()
+
     train_ds = CHOPDatasetFull(
         annotations_path=train_json,
         images_root=image_root,
         image_size=(config["image_size"][0], config["image_size"][1]),
         use_xy_only=True,
+        use_lmdb=use_lmdb,
+        lmdb_path=train_lmdb_path if use_lmdb else None,
     )
     val_ds = CHOPDatasetFull(
         annotations_path=test_json,
         images_root=image_root,
         image_size=(config["image_size"][0], config["image_size"][1]),
         use_xy_only=True,
+        use_lmdb=use_lmdb,
+        lmdb_path=test_lmdb_path if use_lmdb else None,
     )
 
     train_sampler = (
@@ -249,21 +283,21 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scaler = torch.amp.GradScaler(enabled=(config["use_amp"] and device.type == "cuda"))
     warmup_epochs = int(config.get("warmup_epochs", 0))
-    cosine_t0 = int(config.get("cosine_LR_T", 10))
-    cosine_tmult = int(config.get("cosine_LR_mult", 2))
+    cosine_t_max = int(config.get("cosine_T_max", max(1, int(config["epochs"]) - warmup_epochs)))
+    eta_min = float(config.get("min_lr", 5e-6))
     if warmup_epochs > 0:
         warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
             optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
         )
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=cosine_t0, T_mult=cosine_tmult, eta_min=5e-6
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=cosine_t_max, eta_min=eta_min
         )
         scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_epochs]
         )
     else:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=cosine_t0, T_mult=cosine_tmult, eta_min=5e-6
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=cosine_t_max, eta_min=eta_min
         )
 
     if rank == 0 and run is not None:

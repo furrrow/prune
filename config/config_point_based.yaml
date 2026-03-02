@@ -10,7 +10,7 @@ verbose: false
 device: "cuda"
 project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
-learning_rate: 2.5e-3
+learning_rate: 5e-4
 batch_size: 512   # 512 = 14GB VRAM, 50GB RAM
 epochs: 1024
 d_model: 768
@@ -25,8 +25,10 @@ use_wandb: true
 warmup_epochs: 3
 cosine_LR_T: 10
 cosine_LR_mult: 2
+cosine_T_max: 100
+min_lr: 5e-6
 gradient_log_freq : 500
-checkpoint_dir : "../checkpoints/points_based_rm/"
+checkpoint_dir : "./checkpoints/points_based_rm/"
 load_checkpoint_path : ""
 weight_decay: 1e-4
 image_size : [224, 224]
@@ -35,7 +37,11 @@ resume_checkpoint: ""
 fusion_blocks: 4
 num_blocks: 4
 num_heads: 4
-train_json : "../data/train.json"
-test_json : "../data/test.json"
+train_json : "./data/train.json"
+test_json : "./data/test.json"
 use_amp: true
 seed: 42
+use_lmdb: true
+lmdb_root: "./data/lmdb_cache"
+lmdb_build_if_missing: true
+lmdb_overwrite: false

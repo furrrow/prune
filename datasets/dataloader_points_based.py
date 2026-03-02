@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import pickle
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import lmdb
 import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 
 def _load_json_array(path: Path) -> List[Dict[str, Any]]:
@@ -59,6 +62,8 @@ class CHOPDatasetFull(Dataset):
         images_root: str | Path,
         image_size: Optional[Tuple[int, int]] = None,
         use_xy_only: bool = True,
+        use_lmdb: bool = False,
+        lmdb_path: Optional[str | Path] = None,
     ) -> None:
         """
         Args:
@@ -71,9 +76,13 @@ class CHOPDatasetFull(Dataset):
         self.images_root = Path(images_root)
         self.image_size = image_size
         self.use_xy_only = use_xy_only
+        self.use_lmdb = use_lmdb
+        self.lmdb_path = Path(lmdb_path) if lmdb_path is not None else None
+        self._lmdb_env: Optional[lmdb.Environment] = None
 
         self.samples = _load_json_array(self.annotations_path)
         self._validate_schema()
+        self._init_lmdb()
 
     def _validate_schema(self) -> None:
         if not self.samples:
@@ -89,6 +98,30 @@ class CHOPDatasetFull(Dataset):
 
     def __len__(self) -> int:
         return len(self.samples)
+
+    def _init_lmdb(self) -> None:
+        if not self.use_lmdb:
+            return
+        if self.lmdb_path is None:
+            raise ValueError("use_lmdb=True requires lmdb_path.")
+        if not self.lmdb_path.exists():
+            raise FileNotFoundError(
+                f"LMDB cache not found at {self.lmdb_path}. Build it first using CHOPDatasetFull.build_lmdb_cache(...)."
+            )
+
+    def _get_lmdb_env(self) -> lmdb.Environment:
+        if self._lmdb_env is None:
+            assert self.lmdb_path is not None
+            self._lmdb_env = lmdb.open(
+                str(self.lmdb_path),
+                readonly=True,
+                lock=False,
+                readahead=False,
+                meminit=False,
+                max_readers=2048,
+                subdir=self.lmdb_path.is_dir(),
+            )
+        return self._lmdb_env
 
     def _load_image(self, rel_image_path: str) -> torch.Tensor:
         img_path = self.images_root / rel_image_path
@@ -109,6 +142,116 @@ class CHOPDatasetFull(Dataset):
         if image.ndim != 3 or image.shape[0] != 3:
             raise FileNotFoundError(f"Image not found or unreadable: {img_path}")
         return image
+
+    @staticmethod
+    def _encode_cache_record(
+        sample: Dict[str, Any],
+        images_root: Path,
+        image_size: Optional[Tuple[int, int]],
+        use_xy_only: bool,
+    ) -> bytes:
+        ranking = [int(x) for x in sample["ranking"]]
+        paths = sample["paths"]
+        points_list: List[np.ndarray] = []
+        for path_id in ranking:
+            pts = np.asarray(paths[str(path_id)]["points"], dtype=np.float32)
+            if pts.ndim != 2 or pts.shape[1] < 2:
+                raise ValueError(f"Path '{path_id}' points must be shaped (K, >=2), got {pts.shape}.")
+            pts = pts[:, :2] if use_xy_only else pts[:, :3]
+            points_list.append(pts)
+        points = np.stack(points_list, axis=0)
+
+        keys = sorted(sample["pairwise_map"].keys(), key=lambda s: tuple(int(x) for x in s.split("_")))
+        pair_i: List[int] = []
+        pair_j: List[int] = []
+        pair_target: List[float] = []
+        for key in keys:
+            i, j = _parse_pair_key(key)
+            winner = int(sample["pairwise_map"][key])
+            if winner not in (i, j):
+                raise ValueError(f"Pair '{key}' has winner {winner}, expected one of ({i}, {j}).")
+            pair_i.append(i)
+            pair_j.append(j)
+            pair_target.append(1.0 if winner == i else 0.0)
+
+        img_path = images_root / sample["image_path"]
+        image_pil = Image.open(img_path).convert("RGB")
+        if image_size is not None:
+            h, w = image_size
+            image_pil = image_pil.resize((w, h), resample=Image.BILINEAR)
+        image = np.array(image_pil, dtype=np.uint8, copy=True)  # H, W, 3
+
+        record = {
+            "id": sample.get("id"),
+            "bag": sample.get("bag"),
+            "timestamp": sample.get("timestamp"),
+            "ranking": np.asarray(ranking, dtype=np.int64),
+            "points": points,
+            "pair_i": np.asarray(pair_i, dtype=np.int64),
+            "pair_j": np.asarray(pair_j, dtype=np.int64),
+            "pair_target": np.asarray(pair_target, dtype=np.float32),
+            "image": image,
+        }
+        return pickle.dumps(record, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @classmethod
+    def build_lmdb_cache(
+        cls,
+        annotations_path: str | Path,
+        images_root: str | Path,
+        lmdb_path: str | Path,
+        image_size: Optional[Tuple[int, int]] = None,
+        use_xy_only: bool = True,
+        map_size_bytes: int = 128 * 1024 * 1024 * 1024,
+        overwrite: bool = False,
+        verbose: bool = True,
+    ) -> None:
+        annotations_path = Path(annotations_path)
+        images_root = Path(images_root)
+        lmdb_path = Path(lmdb_path)
+        if lmdb_path.exists() and not overwrite:
+            return
+
+        lmdb_path.parent.mkdir(parents=True, exist_ok=True)
+        samples = _load_json_array(annotations_path)
+        env = lmdb.open(
+            str(lmdb_path),
+            map_size=map_size_bytes,
+            subdir=lmdb_path.is_dir(),
+            lock=True,
+            readonly=False,
+            meminit=False,
+            map_async=True,
+        )
+        try:
+            commit_every = 1000
+            txn = env.begin(write=True)
+            txn.put(b"length", str(len(samples)).encode("utf-8"))
+            iterator = tqdm(
+                enumerate(samples),
+                total=len(samples),
+                desc=f"Building LMDB ({annotations_path.name})",
+                disable=not verbose,
+            )
+            for idx, sample in iterator:
+                key = f"{idx:09d}".encode("ascii")
+                val = cls._encode_cache_record(
+                    sample=sample,
+                    images_root=images_root,
+                    image_size=image_size,
+                    use_xy_only=use_xy_only,
+                )
+                txn.put(key, val)
+                if (idx + 1) % commit_every == 0:
+                    txn.commit()
+                    txn = env.begin(write=True)
+                    txn.put(b"length", str(len(samples)).encode("utf-8"))
+            txn.commit()
+            env.sync()
+            if verbose:
+                print(f"LMDB cache ready: {lmdb_path} ({len(samples)} samples)")
+        finally:
+            env.close()
 
     def _extract_points(self, paths: Dict[str, Dict[str, Any]], ranking: Sequence[int]) -> torch.Tensor:
         traj_list: List[torch.Tensor] = []
@@ -148,6 +291,27 @@ class CHOPDatasetFull(Dataset):
         )
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
+        if self.use_lmdb:
+            env = self._get_lmdb_env()
+            key = f"{idx:09d}".encode("ascii")
+            with env.begin(write=False) as txn:
+                blob = txn.get(key)
+            if blob is None:
+                raise KeyError(f"LMDB entry not found for index {idx}")
+            rec = pickle.loads(blob)
+            image = torch.from_numpy(rec["image"]).permute(2, 0, 1).contiguous().float() / 255.0
+            return {
+                "id": rec["id"],
+                "bag": rec["bag"],
+                "timestamp": rec["timestamp"],
+                "image": image,
+                "points": torch.from_numpy(rec["points"]),
+                "ranking": torch.from_numpy(rec["ranking"]),
+                "pair_i": torch.from_numpy(rec["pair_i"]),
+                "pair_j": torch.from_numpy(rec["pair_j"]),
+                "pair_target": torch.from_numpy(rec["pair_target"]),
+            }
+
         sample = self.samples[idx]
         ranking = [int(x) for x in sample["ranking"]]
 
