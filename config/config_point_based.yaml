@@ -13,12 +13,12 @@ entity : "jianyu34-university-of-maryland"
 learning_rate: 2e-4
 batch_size: 256   # 512 = 14GB VRAM, 50GB RAM
 epochs: 1024
-d_model: 768
+d_model: 32
 num_workers: 2  # if local, recommend no more than 3 @ batch_size 512
 prefetch_factor: 8
 batch_print_freq: 1
-checkpoint_freq: 5
-dropout: 0.2
+checkpoint_freq: 15
+dropout: 0.1
 sweep: false
 use_cls: true
 use_wandb: true
