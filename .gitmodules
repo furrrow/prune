@@ -1,0 +1,3 @@
+[submodule "policy_sources/OmniVLA"]
+	path = policy_sources/OmniVLA
+	url = https://github.com/furrrow/OmniVLA
