@@ -45,3 +45,4 @@ use_lmdb: true
 lmdb_root: "./data/lmdb_cache"
 lmdb_build_if_missing: true
 lmdb_overwrite: false
+top_k_metric: 2

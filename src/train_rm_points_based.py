@@ -84,15 +84,60 @@ def maybe_all_reduce(t: torch.Tensor) -> None:
 
 
 def compute_pairwise_metrics(
-    scores: torch.Tensor, pair_i: torch.Tensor, pair_j: torch.Tensor, pair_target: torch.Tensor
+    scores: torch.Tensor,
+    pair_i: torch.Tensor,
+    pair_j: torch.Tensor,
+    pair_target: torch.Tensor,
+    eps: float = 0.05,     # label smoothing
+    tau: float = 1.0,      # temperature (>=1 softens)
+    lam: float = 0.0,      # margin penalty strength
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # scores: (B, M), pair_*: (B, P)
     logits = scores.gather(1, pair_i) - scores.gather(1, pair_j)  # (B, P)
-    loss = F.binary_cross_entropy_with_logits(logits, pair_target)
+
+    # label smoothing
+    y = pair_target * (1 - 2 * eps) + eps
+
+    # temperature
+    logits_t = logits / tau
+
+    # BCE loss
+    bce = F.binary_cross_entropy_with_logits(logits_t, y)
+
+    # margin/logit penalty (apply to *raw* logits, not temperature-scaled)
+    pen = (logits ** 2).mean()
+    loss = bce + lam * pen
+
+    # accuracy should be computed on raw logits (threshold at 0)
     preds = (logits >= 0).to(pair_target.dtype)
     acc = (preds == pair_target).float().mean()
+
     return loss, acc
 
+
+def compute_topk_metrics(
+    scores: torch.Tensor,
+    ranking: torch.Tensor,
+    k: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    scores: (B, M) predicted rewards for trajectories in the order given by `ranking`.
+    ranking: (B, M) path IDs sorted by ground-truth preference (best first).
+    Returns:
+      topk_set_acc: predicted top-k IDs match GT top-k IDs as a set.
+      topk_order_acc: predicted top-k IDs match GT top-k IDs in exact order.
+    """
+    k_eff = max(1, min(int(k), scores.shape[1]))
+    topk_pos = scores.topk(k=k_eff, dim=1, largest=True, sorted=True).indices  # positions in current ordering
+    pred_topk_ids = ranking.gather(1, topk_pos)  # convert positions -> path IDs
+    gt_topk_ids = ranking[:, :k_eff]
+
+    pred_sorted = torch.sort(pred_topk_ids, dim=1).values
+    gt_sorted = torch.sort(gt_topk_ids, dim=1).values
+
+    topk_set_acc = (pred_sorted == gt_sorted).all(dim=1).float().mean()
+    topk_order_acc = (pred_topk_ids == gt_topk_ids).all(dim=1).float().mean()
+    return topk_set_acc, topk_order_acc
 
 @torch.no_grad()
 def run_eval(
@@ -100,10 +145,13 @@ def run_eval(
     loader: DataLoader,
     device: torch.device,
     use_amp: bool,
-) -> Tuple[float, float]:
+    topk: int,
+) -> Tuple[float, float, float, float]:
     model.eval()
     total_loss = torch.zeros(1, device=device)
     total_acc = torch.zeros(1, device=device)
+    total_topk_set_acc = torch.zeros(1, device=device)
+    total_topk_order_acc = torch.zeros(1, device=device)
     total_count = torch.zeros(1, device=device)
 
     amp_enabled = use_amp and device.type == "cuda"
@@ -118,17 +166,24 @@ def run_eval(
             loss, acc = compute_pairwise_metrics(
                 scores, dev_batch["pair_i"], dev_batch["pair_j"], dev_batch["pair_target"]
             )
+            topk_set_acc, topk_order_acc = compute_topk_metrics(scores, dev_batch["ranking"], k=topk)
 
         total_loss += loss.detach()
         total_acc += acc.detach()
+        total_topk_set_acc += topk_set_acc.detach()
+        total_topk_order_acc += topk_order_acc.detach()
         total_count += 1
 
     maybe_all_reduce(total_loss)
     maybe_all_reduce(total_acc)
+    maybe_all_reduce(total_topk_set_acc)
+    maybe_all_reduce(total_topk_order_acc)
     maybe_all_reduce(total_count)
     mean_loss = (total_loss / total_count).item()
     mean_acc = (total_acc / total_count).item()
-    return mean_loss, mean_acc
+    mean_topk_set_acc = (total_topk_set_acc / total_count).item()
+    mean_topk_order_acc = (total_topk_order_acc / total_count).item()
+    return mean_loss, mean_acc, mean_topk_set_acc, mean_topk_order_acc
 
 
 def main() -> None:
@@ -321,6 +376,7 @@ def main() -> None:
             print(f"Resumed from {resume_checkpoint} at epoch {start_epoch}")
 
     amp_enabled = config["use_amp"] and device.type == "cuda"
+    topk_metric = int(config.get("top_k_metric", 2))
     global_step = 0
     batch_print_freq = int(config.get("batch_print_freq", 0))
 
@@ -332,6 +388,8 @@ def main() -> None:
 
         running_loss = torch.zeros(1, device=device)
         running_acc = torch.zeros(1, device=device)
+        running_topk_set_acc = torch.zeros(1, device=device)
+        running_topk_order_acc = torch.zeros(1, device=device)
         running_count = torch.zeros(1, device=device)
         epoch_data_time = 0.0
         epoch_compute_time = 0.0
@@ -354,6 +412,7 @@ def main() -> None:
                 loss, acc = compute_pairwise_metrics(
                     scores, dev_batch["pair_i"], dev_batch["pair_j"], dev_batch["pair_target"]
                 )
+                topk_set_acc, topk_order_acc = compute_topk_metrics(scores, dev_batch["ranking"], k=topk_metric)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -361,6 +420,8 @@ def main() -> None:
 
             running_loss += loss.detach()
             running_acc += acc.detach()
+            running_topk_set_acc += topk_set_acc.detach()
+            running_topk_order_acc += topk_order_acc.detach()
             running_count += 1
             batch_compute_time = time.perf_counter() - compute_start
             epoch_compute_time += batch_compute_time
@@ -389,20 +450,28 @@ def main() -> None:
 
         maybe_all_reduce(running_loss)
         maybe_all_reduce(running_acc)
+        maybe_all_reduce(running_topk_set_acc)
+        maybe_all_reduce(running_topk_order_acc)
         maybe_all_reduce(running_count)
         train_loss = (running_loss / running_count).item()
         train_acc = (running_acc / running_count).item()
+        train_topk_set_acc = (running_topk_set_acc / running_count).item()
+        train_topk_order_acc = (running_topk_order_acc / running_count).item()
         train_steps = max(1, int(running_count.item()))
         avg_data_time = epoch_data_time / train_steps
         avg_compute_time = epoch_compute_time / train_steps
 
-        val_loss, val_acc = run_eval(model, val_loader, device, config["use_amp"])
+        val_loss, val_acc, val_topk_set_acc, val_topk_order_acc = run_eval(
+            model, val_loader, device, config["use_amp"], topk=topk_metric
+        )
 
         if rank == 0:
             print(
                 f"[Epoch {epoch:03d}] "
                 f"train_loss={train_loss:.5f} train_pair_acc={train_acc:.4f} "
+                f"train_top{topk_metric}_set_acc={train_topk_set_acc:.4f} train_top{topk_metric}_order_acc={train_topk_order_acc:.4f} "
                 f"val_loss={val_loss:.5f} val_pair_acc={val_acc:.4f} "
+                f"val_top{topk_metric}_set_acc={val_topk_set_acc:.4f} val_top{topk_metric}_order_acc={val_topk_order_acc:.4f} "
                 f"lr={optimizer.param_groups[0]['lr']:.6e} "
                 f"data_time={avg_data_time:.4f}s compute_time={avg_compute_time:.4f}s"
             )
@@ -412,8 +481,12 @@ def main() -> None:
                         "epoch": epoch,
                         "charts/train_loss": train_loss,
                         "charts/train_pair_acc": train_acc,
+                        f"charts/train_top{topk_metric}_set_acc": train_topk_set_acc,
+                        f"charts/train_top{topk_metric}_order_acc": train_topk_order_acc,
                         "charts/val_loss": val_loss,
                         "charts/val_pair_acc": val_acc,
+                        f"charts/val_top{topk_metric}_set_acc": val_topk_set_acc,
+                        f"charts/val_top{topk_metric}_order_acc": val_topk_order_acc,
                         "charts/lr": optimizer.param_groups[0]["lr"],
                         "charts/scheduler_lr": scheduler.get_last_lr()[0],
                         "timing/avg_data_time_s": avg_data_time,
