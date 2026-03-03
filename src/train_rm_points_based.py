@@ -85,15 +85,26 @@ def maybe_all_reduce(t: torch.Tensor) -> None:
 
 def compute_pairwise_metrics(
     scores: torch.Tensor,
+    ranking: torch.Tensor,
     pair_i: torch.Tensor,
     pair_j: torch.Tensor,
     pair_target: torch.Tensor,
     eps: float = 0.05,     # label smoothing
     tau: float = 1.0,      # temperature (>=1 softens)
     lam: float = 0.0,      # margin penalty strength
+    use_rank_gap_weight: bool = False,
+    rank_gap_power: float = 1.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    # scores: (B, M), pair_*: (B, P)
-    logits = scores.gather(1, pair_i) - scores.gather(1, pair_j)  # (B, P)
+    # scores: (B, M) in the same column order as `ranking`.
+    # pair_i/pair_j are path IDs; map ID -> column position first.
+    bsz, num_paths = scores.shape
+    pos_ids = torch.arange(num_paths, device=scores.device, dtype=ranking.dtype).unsqueeze(0).expand(bsz, -1)
+    id_to_pos = torch.empty_like(ranking)
+    id_to_pos.scatter_(1, ranking, pos_ids)  # id_to_pos[b, path_id] = column position in scores
+
+    pos_i = id_to_pos.gather(1, pair_i)
+    pos_j = id_to_pos.gather(1, pair_j)
+    logits = scores.gather(1, pos_i) - scores.gather(1, pos_j)  # (B, P)
 
     # label smoothing
     y = pair_target * (1 - 2 * eps) + eps
@@ -101,8 +112,16 @@ def compute_pairwise_metrics(
     # temperature
     logits_t = logits / tau
 
-    # BCE loss
-    bce = F.binary_cross_entropy_with_logits(logits_t, y)
+    # BCE loss (optionally weighted by rank-distance, e.g., best-vs-worst higher weight)
+    bce_raw = F.binary_cross_entropy_with_logits(logits_t, y, reduction="none")
+    if use_rank_gap_weight:
+        rank_gap = (pos_i - pos_j).abs().to(bce_raw.dtype).clamp_min(1.0)
+        weights = rank_gap.pow(float(rank_gap_power))
+        # Normalize to keep comparable loss magnitude across settings.
+        weights = weights / (weights.mean().detach() + 1e-8)
+        bce = (bce_raw * weights).mean()
+    else:
+        bce = bce_raw.mean()
 
     # margin/logit penalty (apply to *raw* logits, not temperature-scaled)
     pen = (logits ** 2).mean()
@@ -114,29 +133,37 @@ def compute_pairwise_metrics(
 
     return loss, acc
 
-
 def compute_topk_metrics(
     scores: torch.Tensor,
-    ranking: torch.Tensor,
     k: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    scores: (B, M) predicted rewards for trajectories in the order given by `ranking`.
-    ranking: (B, M) path IDs sorted by ground-truth preference (best first).
+    Assumption: For each sample, the M input trajectories are already ordered
+    best->worst in the input tensor. Therefore:
+      - position 0 is the GT-best trajectory
+      - position 1 is GT-second best
+      - ...
+    scores: (B, M) predicted rewards aligned with that GT order.
+
     Returns:
-      topk_set_acc: predicted top-k IDs match GT top-k IDs as a set.
-      topk_order_acc: predicted top-k IDs match GT top-k IDs in exact order.
+      topk_set_acc: 1 if model's top-k positions are exactly {0..k-1} (order ignored)
+      topk_order_acc: 1 if model's top-k positions are exactly [0,1,...,k-1] (order exact)
     """
-    k_eff = max(1, min(int(k), scores.shape[1]))
-    topk_pos = scores.topk(k=k_eff, dim=1, largest=True, sorted=True).indices  # positions in current ordering
-    pred_topk_ids = ranking.gather(1, topk_pos)  # convert positions -> path IDs
-    gt_topk_ids = ranking[:, :k_eff]
+    B, M = scores.shape
+    k_eff = max(1, min(int(k), M))
 
-    pred_sorted = torch.sort(pred_topk_ids, dim=1).values
-    gt_sorted = torch.sort(gt_topk_ids, dim=1).values
+    # model's top-k positions (highest score first)
+    topk_pos = scores.topk(k=k_eff, dim=1, largest=True, sorted=True).indices  # (B,k)
 
-    topk_set_acc = (pred_sorted == gt_sorted).all(dim=1).float().mean()
-    topk_order_acc = (pred_topk_ids == gt_topk_ids).all(dim=1).float().mean()
+    # expected GT top-k positions
+    gt_pos = torch.arange(k_eff, device=scores.device).unsqueeze(0).expand(B, -1)  # (B,k)
+
+    # order accuracy: exact match [0,1,...,k-1]
+    topk_order_acc = (topk_pos == gt_pos).all(dim=1).float().mean()
+
+    # set accuracy: same set {0..k-1} ignoring order
+    topk_set_acc = (torch.sort(topk_pos, dim=1).values == gt_pos).all(dim=1).float().mean()
+
     return topk_set_acc, topk_order_acc
 
 @torch.no_grad()
@@ -146,6 +173,8 @@ def run_eval(
     device: torch.device,
     use_amp: bool,
     topk: int,
+    use_rank_gap_weight: bool,
+    rank_gap_power: float,
 ) -> Tuple[float, float, float, float]:
     model.eval()
     total_loss = torch.zeros(1, device=device)
@@ -164,9 +193,15 @@ def run_eval(
             bsz, num_paths = dev_batch["points"].shape[:2]
             scores = flat_scores.view(bsz, num_paths)
             loss, acc = compute_pairwise_metrics(
-                scores, dev_batch["pair_i"], dev_batch["pair_j"], dev_batch["pair_target"]
+                scores,
+                dev_batch["ranking"],
+                dev_batch["pair_i"],
+                dev_batch["pair_j"],
+                dev_batch["pair_target"],
+                use_rank_gap_weight=use_rank_gap_weight,
+                rank_gap_power=rank_gap_power,
             )
-            topk_set_acc, topk_order_acc = compute_topk_metrics(scores, dev_batch["ranking"], k=topk)
+            topk_set_acc, topk_order_acc = compute_topk_metrics(scores, k=topk)
 
         total_loss += loss.detach()
         total_acc += acc.detach()
@@ -339,7 +374,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
     scaler = torch.amp.GradScaler(enabled=(config["use_amp"] and device.type == "cuda"))
     warmup_epochs = int(config.get("warmup_epochs", 0))
-    cosine_t_max = int(config.get("cosine_T_max", max(1, int(config["epochs"]) - warmup_epochs)))
+    cosine_t_max = int(max(1, int(config["epochs"]) - warmup_epochs))
     eta_min = float(config.get("min_lr", 5e-6))
     if warmup_epochs > 0:
         warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
@@ -377,6 +412,8 @@ def main() -> None:
 
     amp_enabled = config["use_amp"] and device.type == "cuda"
     topk_metric = int(config.get("top_k_metric", 2))
+    use_rank_gap_weight = bool(config.get("use_rank_gap_weight", False))
+    rank_gap_power = float(config.get("rank_gap_power", 1.0))
     global_step = 0
     batch_print_freq = int(config.get("batch_print_freq", 0))
 
@@ -410,9 +447,15 @@ def main() -> None:
                 bsz, num_paths = dev_batch["points"].shape[:2]
                 scores = flat_scores.view(bsz, num_paths)  # (B, M)
                 loss, acc = compute_pairwise_metrics(
-                    scores, dev_batch["pair_i"], dev_batch["pair_j"], dev_batch["pair_target"]
+                    scores,
+                    dev_batch["ranking"],
+                    dev_batch["pair_i"],
+                    dev_batch["pair_j"],
+                    dev_batch["pair_target"],
+                    use_rank_gap_weight=use_rank_gap_weight,
+                    rank_gap_power=rank_gap_power,
                 )
-                topk_set_acc, topk_order_acc = compute_topk_metrics(scores, dev_batch["ranking"], k=topk_metric)
+                topk_set_acc, topk_order_acc = compute_topk_metrics(scores, k=topk_metric)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -462,7 +505,13 @@ def main() -> None:
         avg_compute_time = epoch_compute_time / train_steps
 
         val_loss, val_acc, val_topk_set_acc, val_topk_order_acc = run_eval(
-            model, val_loader, device, config["use_amp"], topk=topk_metric
+            model,
+            val_loader,
+            device,
+            config["use_amp"],
+            topk=topk_metric,
+            use_rank_gap_weight=use_rank_gap_weight,
+            rank_gap_power=rank_gap_power,
         )
 
         if rank == 0:
