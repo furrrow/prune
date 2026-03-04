@@ -1,3 +1,8 @@
 [submodule "policy_sources/OmniVLA"]
 	path = policy_sources/OmniVLA
 	url = https://github.com/furrrow/OmniVLA
+	branch = prune
+[submodule "policy_sources/visualnav_transformer"]
+	path = policy_sources/visualnav_transformer
+	url = git@github.com:furrrow/visualnav-transformer.git
+	branch = prune
