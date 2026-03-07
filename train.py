@@ -20,7 +20,7 @@ from src.reward_model import PairwiseRewardModel
 from src.loss_fn import bradley_terry_loss
 
 def main():
-    with open('../config/setting.yaml', 'r') as f:
+    with open('config/setting.yaml', 'r') as f:
         config = yaml.load(f, Loader=yaml.SafeLoader)
 
     # checkpoint_dir = "/fs/nexus-scratch/jianyu34/Projects/HALO/checkpoints/"
@@ -243,7 +243,7 @@ def main():
         run.finish()
 
 if __name__ == "__main__":
-    with open('../config/setting.yaml', 'r') as f:
+    with open('config/setting.yaml', 'r') as f:
         run_config = yaml.load(f, Loader=yaml.SafeLoader)
 
     # Define a sweep config dictionary

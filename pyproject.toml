@@ -1,7 +1,7 @@
 [project]
 name = "prune"
 version = "0.1.0"
-description = "Add your description here"
+description = "VLA alignment project"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
