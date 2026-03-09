@@ -21,3 +21,6 @@ dependencies = [
     "transformers>=5.2.0",
     "wandb>=0.25.0",
 ]
+
+[tool.uv.sources]
+flownav = { path = "external/flownav" }
