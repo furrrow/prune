@@ -335,9 +335,20 @@ def clean_2d(arr, W, H, max_jump_px=300):
     bad = np.where(jumps < max_jump_px)
     return arr if len(bad)==0 else arr[bad]
 
-color_dict = {
+BGR_color_dict = { # BGR
     "RED" : (0, 0, 255),
     "GREEN" : (0, 255, 0),
+    "BLUE" : (255, 0, 0),
+    "CYAN" : (255, 255, 0),
     "YELLOW" : (0, 255, 255),
+    "CUSTOM" : (125, 125, 125),
+}
+
+RGB_color_dict = { # RGB
+    "RED" : (255, 0, 0),
+    "GREEN" : (0, 255, 0),
+    "BLUE" : (0, 0, 255),
+    "CYAN" : (0, 255, 255),
+    "YELLOW" : (255, 255, 0),
     "CUSTOM" : (125, 125, 125),
 }

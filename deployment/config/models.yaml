@@ -1,0 +1,4 @@
+flownav: 
+  config_path: "/home/jim/Projects/prune/policies/flownav/flownav/config/flownav.yaml"
+
+# add your own model configs here after saving the *.pth file to ../model_weight
