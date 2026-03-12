@@ -1,0 +1,6 @@
+[submodule "policies/visualnav-transformer"]
+	path = policies/visualnav-transformer
+	url = git@github.com:furrrow/visualnav-transformer.git
+[submodule "policies/flownav"]
+	path = policies/flownav
+	url = git@github.com:furrrow/flownav.git
