@@ -158,3 +158,5 @@ src/*_scratch.json
 
 # vs code
 .vscode
+
+deployment/topomaps/*

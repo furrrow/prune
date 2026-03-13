@@ -30,6 +30,7 @@ Next, you will need the weights from the original baseline repos in their corres
 policies/flownav/weights
 policies/visualnav-transformer/weights
 ```
+todo: maybe directly add the link to the weights from their perspective repos...
 
 
 ### To run:
