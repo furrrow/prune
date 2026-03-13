@@ -21,7 +21,7 @@ from tqdm import tqdm
 import cv2
 from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
 from utils.vis_utils import draw_corridor, load_calibration, clean_2d, project_clip, make_corridor_polygon_from_cam_lines
-from utils.vis_utils import color_dict
+from utils.vis_utils import BGR_color_dict as color_dict
 # Ignore warnings
 import warnings
 # warnings.filterwarnings("ignore")
