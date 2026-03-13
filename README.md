@@ -17,6 +17,21 @@ You will also need to include the [SCAND](https://www.cs.utexas.edu/~xiao/SCAND/
 arranged by bag file name. Please provide the scand_img_root in [config/setting.yaml](config/setting.yaml)
 
 
+### Setting up the baselines:
+We are looking at [flownav](https://github.com/utn-air/flownav) and the trio of methods under [visualnav-transformer](https://github.com/robodhruv/visualnav-transformer).
+For this repo, I am using my own fork of the baselines as git [submodules](https://git-scm.com/book/en/v2/Git-Tools-Submodules).
+To initialize these local submodules:
+```console
+git submodule init
+git submodule update
+```
+Next, you will need the weights from the original baseline repos in their corresponding weights folders:
+```console
+policies/flownav/weights
+policies/visualnav-transformer/weights
+```
+
+
 ### To run:
 I am trying out using uv as my project manager
 please check out the documentation
@@ -27,7 +42,7 @@ uv sync
 ```
 Please double-check data directories and hyperparameters in [config/setting.yaml](config/setting.yaml)
 
-Before you run the script, you will need to use the command line to log in to both huggingface and also weights and biases
+Before you run the script, here are commands to log in to both huggingface and weights and biases as needed
 ```console
 uv hf auth login
 wandb login --relogin
