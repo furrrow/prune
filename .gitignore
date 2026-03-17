@@ -160,3 +160,4 @@ src/*_scratch.json
 .vscode
 
 deployment/topomaps/*
+uv.lock
