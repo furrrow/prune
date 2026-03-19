@@ -28,7 +28,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = [".", "policy_sources/visualnav_transformer/train"]
 include = [
     "datasets",
     "datasets.*",
@@ -40,4 +40,8 @@ include = [
     "src.*",
     "utils",
     "utils.*",
+    "policy_sources",
+    "policy_sources.*",
+    "vint_train",
+    "vint_train.*",
 ]
