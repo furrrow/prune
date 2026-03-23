@@ -159,3 +159,5 @@ src/wandb/*
 
 wandb/*
 checkpoints/*
+weights/*
+weights
