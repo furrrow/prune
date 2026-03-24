@@ -26,11 +26,20 @@ git submodule init
 git submodule update
 ```
 Next, you will need the weights from the original baseline repos in their corresponding weights folders:
+- depth_anything_v2_vits.pth
+- flownav_weights.pth
+- gmn.pth
+- nomad.pth
+- vint.pht
+
+We recommend placing all weights under top level weights/ and add symbolic links to each individual policy folders like
 ```console
-policies/flownav/weights
-policies/visualnav-transformer/weights
+ln -s <Project Folder>/weights/depth_anything_v2_vits.pth policies/flownav/weights/
+ln -s <Project Folder>/weights/flownav_weights.pth policies/flownav/weights/
+ln -s <Project Folder>/weights/gmn.pth policies/visualnav-transformer/weights/
+ln -s <Project Folder>/weights/nomad.pth policies/visualnav-transformer/weights/
+ln -s <Project Folder>/weights/vint.pth policies/visualnav-transformer/weights/
 ```
-todo: maybe directly add the link to the weights from their perspective repos...
 
 
 ### To run:

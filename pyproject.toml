@@ -22,7 +22,7 @@ dependencies = [
     "torchdiffeq>=0.2.5",
     "torchvision>=0.25.0",
     "tqdm>=4.67.3",
-    "transformers>=4.37",
+    "transformers>=5.0",
     "wandb>=0.25.0",
     "depth-anything-v2",
     "diffusion-policy",
