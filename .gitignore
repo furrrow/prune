@@ -17,6 +17,10 @@ references/**
 !**/
 !.gitkeep
 
+weights/**
+!**/
+!.gitkeep
+
 # Cloudera
 .bash_history
 .conda
@@ -28,6 +32,7 @@ references/**
 
 # VS Code
 .vscode-server
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
