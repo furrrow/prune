@@ -27,6 +27,7 @@ dependencies = [
     "depth-anything-v2",
     "diffusion-policy",
     "vit-pytorch>=1.18.0",
+    "scipy-stubs~=1.15.3",
 ]
 
 [tool.uv.sources]
