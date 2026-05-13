@@ -214,7 +214,7 @@ def main() -> None:
         "--output-dir",
         "--output",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "data" / "lora-data",
+        default=Path(__file__).resolve().parent.parent / "data",
         help="Directory to write the train/test annotation indices.",
     )
     parser.add_argument(

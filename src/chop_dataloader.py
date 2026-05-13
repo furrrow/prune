@@ -80,7 +80,8 @@ class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 mode, verbose, plot_imgs, num_points=10, re_index=False, dataset_len_limit=None, transform=None):
+                 mode, verbose, plot_imgs, num_points=10, re_index=False, dataset_len_limit=None,
+                 pick_mode="all", transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
@@ -91,6 +92,9 @@ class ChopPreferenceDataset(Dataset):
             num_points (int): number of points per trajectory to resample to
             transform (callable, optional): Optional transform to be applied
                 on a sample.
+            pick_mode:
+                two: randomly pick two where first trajectory is ranked higher than the next
+                all: return all four
         """
         self.preference_root = preference_root
         self.image_root = image_root
@@ -100,7 +104,11 @@ class ChopPreferenceDataset(Dataset):
         self.verbose = verbose
         self.plot_imgs = plot_imgs
         self.dataset_len_limit = dataset_len_limit
+        self.pick_mode = pick_mode
         self.transform = transform
+        if not os.path.exists(self.preference_root):
+            print(f"ERROR, preference root not found in {self.preference_root}")
+            exit()
         self.json_paths = Path(self.preference_root) / self.mode
         self.glob_list = sorted(glob.glob(f"{self.json_paths}/**/*.json", recursive=True))
         self.num_points = num_points
@@ -144,11 +152,8 @@ class ChopPreferenceDataset(Dataset):
             print(f"dataloader artificially limited to len {len_limit}")
             return len_limit
 
-    def __getitem__(self, idx, pick_mode="two"):
+    def __getitem__(self, idx):
         """
-        pick_mode:
-            two: randomly pick two where first trajectory is ranked higher than the next
-            all: return all four
         pref_dict keys:
         dict_keys(['frame_idx', 'robot_width', 'paths', 'preference', 'pairwise', 'position', 'yaw', 'stop'])
         pref_dict['paths']['0'].keys():
@@ -178,11 +183,11 @@ class ChopPreferenceDataset(Dataset):
         right_boundaries = []
 
         # pick two random rankings where the first one is better ranked than the next,
-        if pick_mode == "two":
+        if self.pick_mode == "two":
             first_trajectory = np.random.randint(0, 3)
             second_trajectory = first_trajectory + 1
             ranking_list = [ranking_list[first_trajectory], ranking_list[second_trajectory]]
-        elif pick_mode == "all":
+        elif self.pick_mode == "all":
             ranking_list = ranking_list
 
         for rank in ranking_list:
@@ -212,17 +217,15 @@ class ChopPreferenceDataset(Dataset):
             return None
         if self.verbose:
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
-        # path_data = _extract_path(pref_dict['paths'][str(ranking_list[0])], num_points=self.num_points)
-        path_data = pref_dict['paths'][str(ranking_list[0])]
-        stop_pref = pref_dict['stop']
-        color_key = "GREEN"
-        pref_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
-        # draw overlay of bad trajectory
-        # path_data = _extract_path(pref_dict['paths'][str(ranking_list[1])], num_points=self.num_points)
-        path_data = pref_dict['paths'][str(ranking_list[1])]
-        rej_img = self.overlay_trajectory(image, path_data, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
+
         if self.plot_imgs:
+            stop_pref = pref_dict['stop']
+            color_key = "GREEN"
             fig, ax = plt.subplots(2, 1)
+            pref_path = pref_dict['paths'][str(ranking_list[0])]
+            pref_img = self.overlay_trajectory(image, pref_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
+            rej_path = pref_dict['paths'][str(ranking_list[1])]
+            rej_img = self.overlay_trajectory(image, rej_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
             pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
             rej_view = cv2.cvtColor(rej_img, cv2.COLOR_BGR2RGB)
             ax[0].imshow(pref_view)
@@ -231,11 +234,9 @@ class ChopPreferenceDataset(Dataset):
 
         sample = {
             'image': image,
-            'preferred': pref_img,
-            'rejected': rej_img,
             'points': np.array(points_list),
-            'left_boundaries': np.array(left_boundaries),
-            'right_boundaries': np.array(right_boundaries),
+            # 'left_boundaries': np.array(left_boundaries),
+            # 'right_boundaries': np.array(right_boundaries),
         }
 
         if self.transform:
@@ -287,7 +288,7 @@ def main():
     parser.add_argument(
         "--calibration-file",
         type=Path,
-        default=settings['calibration_file'],
+        default=project_home_dir / settings['calibration_file'],
         help="Calibration file for camera intrinsics & extrinsics",
     )
     parser.add_argument(

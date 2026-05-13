@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import time
+import datetime
 from pathlib import Path
 from typing import Dict, Tuple, Union
 
@@ -15,14 +16,8 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 
-from datasets.dataloader_points_based import CHOPDatasetFull, collate_points_based
+from chop_dataloader_points_based import CHOPDatasetFull, collate_points_based
 from models.reward_model_point_based import RewardModelPointBased
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser("DDP training for point-based reward model")
-    parser.add_argument("--config", type=Path, help="Path to config.yaml", default=Path("./config/config_point_based.yaml"))
-    return parser.parse_args()
 
 
 def setup_distributed() -> Tuple[int, int, int, torch.device, bool]:
@@ -222,11 +217,7 @@ def run_eval(
 
 
 def main() -> None:
-
-    args = parse_args()
-
-    config_path = args.config.resolve()
-    project_root = config_path.parent.parent
+    config_path = "config/setting.yaml"
 
     with open(config_path, 'r') as f:
         config = yaml.load(f, Loader=yaml.SafeLoader)
@@ -234,69 +225,62 @@ def main() -> None:
     rank, world_size, local_rank, device, distributed = setup_distributed()
     set_seed(config["seed"] + rank)
 
-    checkpoint_dir = Path(config["checkpoint_dir"])
-    if not checkpoint_dir.is_absolute():
-        checkpoint_dir = (project_root / checkpoint_dir).resolve()
+    checkpoint_dir = config["checkpoint_dir"]
     resume_checkpoint = Path(config["resume_checkpoint"]) if config.get("resume_checkpoint") else None
     train_json = Path(config["train_json"])
     test_json = Path(config["test_json"])
     image_root = Path(config["image_root"])
-    if not train_json.is_absolute():
-        train_json = (project_root / train_json).resolve()
-    if not test_json.is_absolute():
-        test_json = (project_root / test_json).resolve()
-    if not image_root.is_absolute():
-        image_root = (project_root / image_root).resolve()
-    if resume_checkpoint is not None and not resume_checkpoint.is_absolute():
-        resume_checkpoint = (project_root / resume_checkpoint).resolve()
 
-    use_lmdb = bool(config.get("use_lmdb", False))
-    lmdb_root = Path(config.get("lmdb_root", project_root / "data" / "lmdb_cache"))
-    if not lmdb_root.is_absolute():
-        lmdb_root = (project_root / lmdb_root).resolve()
+    use_lmdb = config["use_lmdb"]
+    lmdb_root = Path(config["lmdb_root"])
     train_lmdb_path = lmdb_root / f"{train_json.stem}.lmdb"
     test_lmdb_path = lmdb_root / f"{test_json.stem}.lmdb"
     lmdb_build_if_missing = bool(config.get("lmdb_build_if_missing", True))
     lmdb_overwrite = bool(config.get("lmdb_overwrite", False))
 
-    wandb_dir = Path(config.get("wandb_dir", project_root / "wandb"))
-    if not wandb_dir.is_absolute():
-        wandb_dir = (project_root / wandb_dir).resolve()
+    batch_size = config['batch_size']
+    n_epochs = config['epochs']
+    use_wandb = config['use_wandb']
+    verbose = config['verbose']
+    # Get the current time
+    now = datetime.datetime.now()
 
-    run = None
-    run_name = "no_wandb"
+    # Format the time as a string
+    timestamp = now.strftime("%y-%m-%d_%H-%M-%S")
+    project_name = config['project_name']
+    entity_name = config['entity']
+    lr = config['learning_rate']
+    exp_name = f"{project_name}_{timestamp}"
+    checkpoint_dir = os.path.join(checkpoint_dir, exp_name)
+    save_name = "run"
+
     if rank == 0:
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        wandb_dir.mkdir(parents=True, exist_ok=True)
-        if config.get("use_wandb", False):
-            run = wandb.init(
-                project=config.get("project_name", "prune"),
-                entity=config.get("entity"),
-                config=config,
-                dir=str(wandb_dir),
-            )
-            run_name = run.name or run.id or "wandb_run"
+        if use_wandb:
+            run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir,
+                             config=config)
+            config['wandb_run_name'] = run.name
+            save_name = run.name
 
-    if use_lmdb and lmdb_build_if_missing:
-        if rank == 0:
-            CHOPDatasetFull.build_lmdb_cache(
-                annotations_path=train_json,
-                images_root=image_root,
-                lmdb_path=train_lmdb_path,
-                image_size=(config["image_size"][0], config["image_size"][1]),
-                use_xy_only=True,
-                overwrite=lmdb_overwrite,
-            )
-            CHOPDatasetFull.build_lmdb_cache(
-                annotations_path=test_json,
-                images_root=image_root,
-                lmdb_path=test_lmdb_path,
-                image_size=(config["image_size"][0], config["image_size"][1]),
-                use_xy_only=True,
-                overwrite=lmdb_overwrite,
-            )
-        if distributed:
-            dist.barrier()
+    # if use_lmdb and lmdb_build_if_missing:
+    #     if rank == 0:
+    #         CHOPDatasetFull.build_lmdb_cache(
+    #             annotations_path=train_json,
+    #             images_root=image_root,
+    #             lmdb_path=train_lmdb_path,
+    #             image_size=(config["image_size"][0], config["image_size"][1]),
+    #             use_xy_only=True,
+    #             overwrite=lmdb_overwrite,
+    #         )
+    #         CHOPDatasetFull.build_lmdb_cache(
+    #             annotations_path=test_json,
+    #             images_root=image_root,
+    #             lmdb_path=test_lmdb_path,
+    #             image_size=(config["image_size"][0], config["image_size"][1]),
+    #             use_xy_only=True,
+    #             overwrite=lmdb_overwrite,
+    #         )
+    #     if distributed:
+    #         dist.barrier()
 
     train_ds = CHOPDatasetFull(
         annotations_path=train_json,
@@ -544,7 +528,7 @@ def main() -> None:
                 )
 
             if (epoch + 1) % config["checkpoint_freq"] == 0:
-                run_ckpt_dir = checkpoint_dir / run_name
+                run_ckpt_dir = checkpoint_dir / save_name
                 run_ckpt_dir.mkdir(parents=True, exist_ok=True)
                 ckpt_path = run_ckpt_dir / f"epoch_{epoch:03d}.pt"
                 torch.save(
@@ -553,7 +537,7 @@ def main() -> None:
                         "model_state_dict": unwrap_model(model).state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                         "scheduler_state_dict": scheduler.state_dict(),
-                        "args": vars(args),
+                        # "args": vars(args),
                     },
                     ckpt_path,
                 )

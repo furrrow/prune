@@ -16,7 +16,7 @@ import yaml
 import os
 
 from src.chop_dataloader import ChopPreferenceDataset
-from src.reward_model import PairwiseRewardModel
+from src.reward_model import RewardModel
 from src.loss_fn import bradley_terry_loss
 
 def main():
@@ -42,7 +42,6 @@ def main():
     project_name = config['project_name']
     entity_name = config['entity']
     lr = config['learning_rate']
-    use_cls = config['use_cls']
     exp_name = f"{project_name}_{timestamp}"
     checkpoint_dir = os.path.join(checkpoint_dir, exp_name)
     save_name = "run"
@@ -62,11 +61,14 @@ def main():
     print("model config:")
     print(json.dumps(config, indent=4))
     # Define Model, Loss, Optimizer
-    model = PairwiseRewardModel(hidden_dim=config['hidden_dim'], num_heads=config['num_heads'],
-                                dropout_rate=config['dropout'],
-                                use_cls=use_cls, verbose=config['verbose']).to(device)
+    model = RewardModel(d_model=config["d_model"],
+                        n_heads=config["num_heads"],
+                        dropout=config["dropout"],
+                        fusion_blocks=config["fusion_blocks"],
+                        num_blocks=config["num_blocks"],
+                        verbose=config['verbose']).to(device)
     criterion = bradley_terry_loss
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=float(lr), weight_decay=1e-3)
     if use_wandb:
         wandb.watch(model, log_freq=config['gradient_log_freq'])
 
@@ -155,18 +157,29 @@ def main():
         batch_count = 0
 
         for batch in tqdm(train_loader, desc="training loop..."):
-            original = batch["image"].to(device)
-            preferred = batch["preferred"].to(device)
-            rejected = batch["rejected"].to(device)
+            image = batch["image"].to(device) # [Batch, 720, 1280, 3]
+            points = batch["points"].to(device) # [Batch, n_points, 10, 3]
+            points = points[:, :, :, :2] # [Batch, n_points, 10, 2], only get x and y coords
+            B, n_points = points.shape[0:2]
             optimizer.zero_grad()
 
             # Forward pass
-            original = model.processor(original, return_tensors="pt")
-            preferred = model.processor(preferred, return_tensors="pt")
-            rejected = model.processor(rejected, return_tensors="pt")
-            preferred_reward = model(original, preferred)
-            rejected_reward = model(original, rejected)
+            image = model.processor(image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
+            preferred_reward = model(points, image) # [batch * n_points]
 
+            # shape reward back into pairwise setting
+            reshaped_rwd = preferred_reward.reshape((B, n_points))
+            rank0 = reshaped_rwd[:, 0]
+            rank1 = reshaped_rwd[:, 1]
+            rank2 = reshaped_rwd[:, 2]
+            rank3 = reshaped_rwd[:, 3]
+            coin = torch.randint(0, 2, (1,)).item()
+            if coin == 0:
+                preferred_reward = torch.concat((rank0, rank1))
+                rejected_reward = torch.concat((rank2, rank3))
+            else:
+                preferred_reward = torch.concat((rank0, rank2))
+                rejected_reward = torch.concat((rank1, rank3))
             # Compute Loss
             loss = criterion(preferred_reward, rejected_reward)
             # reward_reg_loss = lambda_reward * torch.mean(predicted_rewards ** 2)

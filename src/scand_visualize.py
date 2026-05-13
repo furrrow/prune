@@ -6,22 +6,17 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import Counter
 from tqdm import tqdm
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
+from typing import Any, Dict, MutableMapping
 import numpy as np
-from preprocess_scand_a_chop import _process_annotation_file, _JsonArrayWriter
+from data.preprocess_scand_a_chop import _process_annotation_file
 
 import os
 import cv2
 from dataclasses import dataclass
-import time
 
-from utils.vis_utils import point_to_traj, make_corridor_polygon, draw_polyline, draw_corridor, transform_points, \
-    project_points_cam, load_calibration, clean_2d, project_clip, make_corridor_polygon_from_cam_lines
-from utils.traj_utils import solve_arc_from_point
-
+from utils.vis_utils import draw_corridor, load_calibration, clean_2d, project_clip, make_corridor_polygon_from_cam_lines
 
 Annotation = MutableMapping[str, Any]
 PathDict = Dict[str, Any]

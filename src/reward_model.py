@@ -5,148 +5,100 @@ reward model using the trajectory preferences
 import torch
 import torch.nn as nn
 from transformers import TorchAoConfig, AutoImageProcessor, AutoModel
-from transformers.image_utils import load_image
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
+from models.trajectory_transformer import TrajectoryTransformer
+from models.fusion_block import FusionBlock
 from torchvision.transforms import v2
 
 """
 DINOv3 related transforms, etc
 see: https://github.com/facebookresearch/dinov3
 """
-# only for LVD-1689M weights (pretrained on web images)
-def make_transform(resize_size: int = 256):
-    to_tensor = v2.ToImage()
-    resize = v2.Resize((resize_size, resize_size), antialias=True)
-    to_float = v2.ToDtype(torch.float32, scale=True)
-    normalize = v2.Normalize(
-        mean=(0.485, 0.456, 0.406),
-        std=(0.229, 0.224, 0.225),
-    )
-    return v2.Compose([to_tensor, resize, to_float, normalize])
-
-
-# examples of available DINOv3 models:
-MODEL_DINOV3_VITS = "dinov3_vits16"
-MODEL_DINOV3_VITSP = "dinov3_vits16plus"
-MODEL_DINOV3_VITB = "dinov3_vitb16"
-MODEL_DINOV3_VITL = "dinov3_vitl16"
-MODEL_DINOV3_VITHP = "dinov3_vith16plus"
-MODEL_DINOV3_VIT7B = "dinov3_vit7b16"
-MODEL_TO_NUM_LAYERS = {
-    MODEL_DINOV3_VITS: 12,
-    MODEL_DINOV3_VITSP: 12,
-    MODEL_DINOV3_VITB: 12,
-    MODEL_DINOV3_VITL: 24,
-    MODEL_DINOV3_VITHP: 32,
-    MODEL_DINOV3_VIT7B: 40,
-}
-
-
-class PairwiseRewardModel(nn.Module):
-    def __init__(self, hidden_dim, num_heads, dropout_rate=0.1, use_cls=True, verbose=True):
+class RewardModel(nn.Module):
+    def __init__(self,
+                 d_model: int = 384,
+                 n_heads: int = 8,
+                 dropout: float = 0.1,
+                 fusion_blocks: int = 4,
+                 num_blocks: int = 4,
+                 verbose: bool = True):
         super().__init__()
         # self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
-        # self.model_name = "facebook/dinov3-vitb16-pretrain-lvd1689m"
-        self.model_name = "facebook/dinov3-vitl16-pretrain-lvd1689m"
+        self.image_feature_extractor_name = "facebook/dinov3-vitb16-pretrain-lvd1689m"
+        # self.model_name = "facebook/dinov3-vitl16-pretrain-lvd1689m"
         # self.model_name = "facebook/dinov3-vit7b16-pretrain-lvd1689m"
-        self.num_heads = num_heads
-        self.use_cls = use_cls
 
         # Load DINOv3
         if verbose:
-            print("loading model", self.model_name)
-        self.processor = AutoImageProcessor.from_pretrained(self.model_name)
-        self.model = AutoModel.from_pretrained(self.model_name)
-        self.patch_size = self.model.config.patch_size
+            print("loading model", self.image_feature_extractor_name)
+        self.processor = AutoImageProcessor.from_pretrained(self.image_feature_extractor_name)
+        self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
+        self.patch_size = self.image_feature_extractor.config.patch_size
+        self.image_dim = self.image_feature_extractor.config.hidden_size
+        # Important for DDP: frozen params must not require grad.
+        for p in self.image_feature_extractor.parameters():
+            p.requires_grad = False
         if verbose:
-            print(self.model)
+            print(self.image_feature_extractor)
             print("Patch size:", self.patch_size)  # 16
-            print("Num register tokens:", self.model.config.num_register_tokens)  # 4
-        self.hidden_dim = hidden_dim # fixed for DINOv3? check this
+            print("Image hidden dim:", self.image_dim)
+            print("Num register tokens:", self.image_feature_extractor.config.num_register_tokens)  # 4
+        self.d_model = d_model
+        self.num_register_tokens = self.image_feature_extractor.config.num_register_tokens
 
-        # Self-Attention Over Vision Features
-        self.multihead_attn1 = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads, batch_first=True, dropout=dropout_rate)
-        self.multihead_attn2 = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads, batch_first=True, dropout=dropout_rate)
-        self.multihead_attn3 = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.num_heads, batch_first=True, dropout=dropout_rate)
-        self.attn_norm = nn.LayerNorm(self.hidden_dim)
-        self.dropout = nn.Dropout(p=dropout_rate)
+        self.trajectory_transformer = TrajectoryTransformer(d_model=d_model,
+                                                            num_blocks=num_blocks)
 
-        # patch feature distillation
-        self.patch_conv1 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=5, stride=2)
-        self.patch_conv2 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=3, stride=2)
-        self.patch_conv3 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=2)
+        self.image_proj = nn.Identity() if self.image_dim == d_model else nn.Linear(self.image_dim, d_model)
+
+        self.fusion = nn.ModuleList([
+            FusionBlock(d_model=d_model, n_heads=n_heads, dropout=dropout)
+            for _ in range(fusion_blocks)
+        ])
 
         # Reward Prediction Head
         self.reward_head = nn.Sequential(
-            nn.Linear(self.hidden_dim, 512), nn.ReLU(), nn.Dropout(dropout_rate),
-            nn.Linear(512, 128), nn.ReLU(), nn.Dropout(dropout_rate),
-            nn.Linear(128, 1), )
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, d_model // 2),
+            nn.Dropout(dropout),
+            nn.GELU(),
+            nn.Linear(d_model // 2, 1),
+        )
 
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        """Initializes weights using Xavier uniform distribution."""
-        for name, module in self.named_modules():
-            if "vision_model" in name:
-                continue
-            elif isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)  # Zero-bias initialization
-
-    def forward(self, orig_input, annotated_input):
+    def forward(self, pts: torch.Tensor, image_inputs) -> torch.Tensor:
         """
-        original_img: (batch_size, 3, 224, 224)
-        annotated_img: (batch_size, 3, 224, 224)
+        Args:
+            pts: (B, M, K, 2) tensor of point trajectories
+            B: batch
+            M: number of trajectories, 4?
+            K: number of points in each trajectory, 10
+            2: (x, y) of trajectory coordinates
+            image_inputs: dict-like input for DINOv3 (must include pixel_values)
+                (batch_size, 3, 224, 224)
+        Returns:
+            rewards: (BxM) tensor of scalar rewards for each trajectory
         """
-        # handling these at the training script
-        # orig_input = self.processor(images=original_img, return_tensors="pt")
-        # annotated_input = self.processor(images=annotated_img, return_tensors="pt")
-        # orig_input.data['pixel_values'].shape = torch.Size([batch_size, 3, 224, 224])
+        B, M, K, _ = pts.shape
+        pts_flat = pts.reshape(B * M, K, 2).float()
+        x = self.trajectory_transformer(pts_flat)  # (B, K+1, D_model) with CLS at index 0]
+
         with torch.no_grad():
-            orig_output = self.model(**orig_input)
-            annotated_output = self.model(**annotated_input)
-        if self.use_cls:
-            original_patch_features = orig_output.last_hidden_state[:, 0, :]
-            annotated_patch_features = annotated_output.last_hidden_state[:, 0, :]
-        else:
-            # [batch_size, 196, 384]
-            original_patch_features = orig_output.last_hidden_state[:, 1 + self.model.config.num_register_tokens:, :]
-            annotated_patch_features = annotated_output.last_hidden_state[:, 1 + self.model.config.num_register_tokens:, :]
-            batch_size, _, img_height, img_width = orig_input.pixel_values.shape
-            patch_size = self.model.config.patch_size
-            num_patches_height, num_patches_width = img_height // patch_size, img_width // patch_size
-            # num_patches_flat = num_patches_height * num_patches_width
-            # to unflatten: patch_features_flat.unflatten(1, (num_patches_height, num_patches_width))
-            original_patch_features = original_patch_features.unflatten(1, (num_patches_height, num_patches_width))
-            annotated_patch_features = annotated_patch_features.unflatten(1, (num_patches_height, num_patches_width))
-            # channel first
-            original_patch_features = torch.movedim(original_patch_features, 3, 1)
-            annotated_patch_features = torch.movedim(annotated_patch_features, 3, 1)
+            img_output = self.image_feature_extractor(**image_inputs)
+        # original_patch_features = orig_output.last_hidden_state[:, 0, :] # same as: img_output.pooler_output
 
-            original_patch_features = self.patch_conv1(original_patch_features)
-            original_patch_features = self.patch_conv2(original_patch_features)
-            original_patch_features = self.patch_conv3(original_patch_features)
-            original_patch_features = original_patch_features.squeeze(-1).squeeze(-1)
+        img_tokens = img_output.last_hidden_state
+        img_tokens = img_tokens[:, 1 + self.num_register_tokens :, :] # [batch, 196, 768]
 
-            annotated_patch_features = self.patch_conv1(annotated_patch_features)
-            annotated_patch_features = self.patch_conv2(annotated_patch_features)
-            annotated_patch_features = self.patch_conv3(annotated_patch_features)
-            annotated_patch_features = annotated_patch_features.squeeze(-1).squeeze(-1)
+        B, n_patches, embed = img_tokens.shape
+        assert (embed == self.d_model) , f"embedding size {embed} does not match d_model {self.d_model}"
 
-        # Self-Attention on Vision Features
-        attn_output, _ = self.multihead_attn1(original_patch_features, annotated_patch_features, original_patch_features)  # Shape: (batch_size, num_patches, hidden_dim)
-        attn_output = self.attn_norm(self.dropout(attn_output))  # Normalize After Self-Attention
-        residual1 = attn_output
+        img_tokens_exp  = img_tokens[:, None, :, :].expand(B, M, n_patches, embed)
+        img_tokens_flat = img_tokens_exp.reshape(B * M, n_patches, embed)
 
-        attn_output, _ = self.multihead_attn2(attn_output, attn_output,
-                                              attn_output)
-        attn_output = self.attn_norm(residual1 + self.dropout(attn_output))
-        residual2 = attn_output
+        # Trajectory queries attend to image patch keys/values.
+        for block in self.fusion:
+            x = block(x, img_tokens_flat)
 
-        attn_output, _ = self.multihead_attn3(attn_output, attn_output,
-                                              attn_output)
-        attn_output = self.attn_norm(residual2 + self.dropout(attn_output))
-        # Predict rewards for all 25 actions
-        rewards = self.reward_head(attn_output).squeeze(-1)  # (batch_size)
-        return rewards
+        # CLS readout for reward prediction.
+        cls_feat = x[:, 0, :]
+        rewards = self.reward_head(cls_feat).squeeze(-1)
+        return rewards # [batch * M (number of trajectories)]
