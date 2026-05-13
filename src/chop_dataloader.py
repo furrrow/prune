@@ -206,7 +206,7 @@ class ChopPreferenceDataset(Dataset):
             raise ValueError('Error, robot type unclear.')
 
         if os.path.exists(img_path):
-            image = cv2.imread(img_path)
+            image = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
         else:
             print(f"warning, idx {idx} img not found: {img_path}")
             # self.glob_list.pop(idx)
@@ -226,10 +226,10 @@ class ChopPreferenceDataset(Dataset):
             pref_img = self.overlay_trajectory(image, pref_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
             rej_path = pref_dict['paths'][str(ranking_list[1])]
             rej_img = self.overlay_trajectory(image, rej_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
-            pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
-            rej_view = cv2.cvtColor(rej_img, cv2.COLOR_BGR2RGB)
-            ax[0].imshow(pref_view)
-            ax[1].imshow(rej_view)
+            # pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
+            # rej_view = cv2.cvtColor(rej_img, cv2.COLOR_BGR2RGB)
+            ax[0].imshow(pref_img)
+            ax[1].imshow(rej_img)
             plt.show(block=True)
 
         sample = {

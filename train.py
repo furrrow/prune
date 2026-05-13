@@ -96,8 +96,8 @@ def main():
     # val_sampler = WeightedRandomSampler(weights=val_dataset.sample_weights, num_samples=len(val_dataset),
     #                                     replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=config['num_workers'])
-    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, pin_memory=True, num_workers=config['num_workers'])
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=True, num_workers=3)
 
     # Define warmup scheduler
     warmup_epochs = run_config['warmup_epochs']
@@ -165,10 +165,10 @@ def main():
 
             # Forward pass
             image = model.processor(image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
-            preferred_reward = model(points, image) # [batch * n_points]
+            reward_prediction = model(points, image) # [batch * n_points]
 
             # shape reward back into pairwise setting
-            reshaped_rwd = preferred_reward.reshape((B, n_points))
+            reshaped_rwd = reward_prediction.reshape((B, n_points))
             rank0 = reshaped_rwd[:, 0]
             rank1 = reshaped_rwd[:, 1]
             rank2 = reshaped_rwd[:, 2]
@@ -209,14 +209,27 @@ def main():
         val_loss = 0.0
         with torch.no_grad():
             for batch in tqdm(val_loader, desc="validation loop..."):
-                original = batch["image"].to(device)
-                preferred = batch["preferred"].to(device)
-                rejected = batch["rejected"].to(device)
-                original = model.processor(original, return_tensors="pt")
-                preferred = model.processor(preferred, return_tensors="pt")
-                rejected = model.processor(rejected, return_tensors="pt")
-                preferred_reward = model(original, preferred)
-                rejected_reward = model(original, rejected)
+                image = batch["image"].to(device)
+                points = batch["points"].to(device)
+                points = points[:, :, :, :2]  # only get x and y coords
+                B, n_points = points.shape[0:2]
+                image = model.processor(image, return_tensors="pt")  # pixel_values: # [B, 3, 224, 224]
+                reward_prediction = model(points, image) # [batch * n_points]
+
+                # shape reward back into pairwise setting
+                reshaped_rwd = reward_prediction.reshape((B, n_points))
+                rank0 = reshaped_rwd[:, 0]
+                rank1 = reshaped_rwd[:, 1]
+                rank2 = reshaped_rwd[:, 2]
+                rank3 = reshaped_rwd[:, 3]
+                coin = torch.randint(0, 2, (1,)).item()
+                if coin == 0:
+                    preferred_reward = torch.concat((rank0, rank1))
+                    rejected_reward = torch.concat((rank2, rank3))
+                else:
+                    preferred_reward = torch.concat((rank0, rank2))
+                    rejected_reward = torch.concat((rank1, rank3))
+                # Compute Loss
                 loss = criterion(preferred_reward, rejected_reward)
                 val_loss += loss.item()
                 if verbose:
