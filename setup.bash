@@ -74,3 +74,8 @@ rosmode
 # ghost: 123
 # jackal: 0
 # husky: ??
+
+# when having trouble with .ssh folder ownership issues...
+# chown -R root:root /root/.ssh
+
+export TRANSFORMERS_OFFLINE=1
