@@ -29,6 +29,7 @@ dependencies = [
     "vit-pytorch>=1.18.0",
     "scipy-stubs~=1.15.3",
     "lmdb>=2.2.0",
+    "ffmpeg>=1.4",
     "frechetdist>=0.6",
     "dtaidistance>=2.4.0",
 ]

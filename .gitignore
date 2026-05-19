@@ -1,7 +1,12 @@
 workspace/*
 !.gitkeep
 
-data/annotations/*
+data/annotations/**
+data/*.json
+!**/
+!.gitkeep
+
+data/recordings/**
 !**/
 !.gitkeep
 
