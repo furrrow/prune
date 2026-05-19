@@ -77,5 +77,5 @@ rosmode
 
 # when having trouble with .ssh folder ownership issues...
 # chown -R root:root /root/.ssh
-
+# enable offline mode when we are not connected to internet...
 export TRANSFORMERS_OFFLINE=1

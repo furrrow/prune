@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 # 
-docker build -t prune:dev .
+docker build -t prune-deployment .
