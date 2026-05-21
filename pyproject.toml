@@ -32,6 +32,8 @@ dependencies = [
     "ffmpeg>=1.4",
     "frechetdist>=0.6",
     "dtaidistance>=2.4.0",
+    "huggingface>=0.0.1",
+    "huggingface-hub>=1.6.0",
 ]
 
 [tool.uv.sources]

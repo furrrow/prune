@@ -12,9 +12,6 @@ rosmode () {
   rm -rf ~/.ros/daemon
 }
 
-echo "sourcing ros humble"
-source /opt/ros/humble/setup.bash
-
 alias realsense2="ros2 launch realsense2_camera rs_launch.py"
 alias chop='docker run -it --rm \
   --name chop-dev \
@@ -70,6 +67,8 @@ HUSKY_IP=192.168.131.1
 
 export ROS_DOMAIN_ID=123
 rosmode
+echo "sourcing ros humble"
+source /opt/ros/humble/setup.bash
 # ROS_DOMAIN_ID:
 # ghost: 123
 # jackal: 0
@@ -78,4 +77,7 @@ rosmode
 # when having trouble with .ssh folder ownership issues...
 # chown -R root:root /root/.ssh
 # enable offline mode when we are not connected to internet...
-export TRANSFORMERS_OFFLINE=1
+# export TRANSFORMERS_OFFLINE=1
+
+export PYTHONPATH=$PYTHONPATH:/workspace/prune/policies/flownav
+export PYTHONPATH=$PYTHONPATH:/workspace/prune/policies/visualnav-transformer
