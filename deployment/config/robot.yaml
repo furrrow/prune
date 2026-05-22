@@ -9,14 +9,14 @@ turtle:
   vel_topic: "/turtle1/cmd_vel"
   overlay_topic: "/turtle1/turtlelay"
 ghost:
-  max_v: 0.3 # m/s
-  max_w: 0.4 # rad/s
+  max_v: 0.2 # m/s
+  max_w: 0.3 # rad/s
   image_topic: "/camera/camera/color/image_raw/compressed"
 #  image_topic: "/camera/camera/color/image_raw"
   waypoint_topic: "/ghost/waypoint"
   reached_goal_topic: "/ghost/topoplan/reached_goal"
   sampled_actions_topic: "/ghost/sampled_actions"
-  vel_topic: "/mcu/command/manual_twist"
+  vel_topic: "  /mcu/command/manual_twist"
   overlay_topic: "/ghost/path_overlay"
   img_w: 1280
   img_h: 720

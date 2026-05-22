@@ -66,7 +66,7 @@ JACKAL_IP=192.168.131.1
 HUSKY_IP=192.168.131.1
 
 export ROS_DOMAIN_ID=123
-rosmode
+# rosmode
 echo "sourcing ros humble"
 source /opt/ros/humble/setup.bash
 # ROS_DOMAIN_ID:
@@ -77,7 +77,5 @@ source /opt/ros/humble/setup.bash
 # when having trouble with .ssh folder ownership issues...
 # chown -R root:root /root/.ssh
 # enable offline mode when we are not connected to internet...
-# export TRANSFORMERS_OFFLINE=1
-
-export PYTHONPATH=$PYTHONPATH:/workspace/prune/policies/flownav
-export PYTHONPATH=$PYTHONPATH:/workspace/prune/policies/visualnav-transformer
+export TRANSFORMERS_OFFLINE=1
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
