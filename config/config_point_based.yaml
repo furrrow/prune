@@ -2,11 +2,15 @@
 # basic settings file for the project
 
 # Required
-image_root: "/fs/gamma-datasets/SCAND/images/"
+#image_root: "/fs/gamma-datasets/SCAND/images/"
+image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
 # image_root: "/media/beast-gamma/Media/Datasets/SCAND/images/"
-#preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
-preference_root: "/home/beast-gamma/Documents/GAMMA/Projects/prune/datasets"
+preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
+#preference_root: "/home/beast-gamma/Documents/GAMMA/Projects/prune/datasets"
+calibration_file : "config/tf.json"
+image_ext: "png"
 verbose: false
+plot_imgs: false
 device: "cuda"
 project_name : "Prune"
 entity : "jianyu34-university-of-maryland"

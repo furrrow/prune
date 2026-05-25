@@ -2,19 +2,16 @@
 loss_fn.py
 """
 import torch
+import torch.nn.functional as F
+
 
 def bradley_terry_loss(pref_score, rej_score):
     """
-    -log(exp_pref / (exp_pref + exp_rej)) =  log(exp_pref + exp_rej) - log(exp_pref)
-    the log(exp_pref) further simplifies into just the preference score
-    :param pref_score:
-    :param rej_score:
-    :return:
+    P(i > j) = sigmoid(s_i - s_j)
+    Loss = -log(sigmoid(s_i - s_j))
+    Using logsigmoid for numerical stability
     """
-    log_numerator = pref_score
-    log_denominator = torch.log(torch.exp(pref_score) + torch.exp(rej_score))
-    loss = log_denominator - log_numerator
-    return loss.mean()
+    return -F.logsigmoid(pref_score - rej_score).mean()
 
 
 class PL_Loss(torch.nn.Module):

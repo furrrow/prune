@@ -4,3 +4,6 @@
 [submodule "policies/flownav"]
 	path = policies/flownav
 	url = git@github.com:furrrow/flownav.git
+[submodule "policies/CAST"]
+	path = policies/CAST
+	url = git@github.com:furrrow/CAST.git

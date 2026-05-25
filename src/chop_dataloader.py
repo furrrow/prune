@@ -80,7 +80,7 @@ class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 mode, verbose, plot_imgs, num_points=10, re_index=False, dataset_len_limit=None,
+                 mode, verbose, plot_imgs, num_points=8, re_index=False, dataset_len_limit=None,
                  pick_mode="all", transform=None):
         """
         Arguments:
@@ -144,6 +144,20 @@ class ChopPreferenceDataset(Dataset):
             with open(self.pair_scratch_file, "w") as f:
                 json.dump(self.verified_pairs, f, indent=4)
 
+    def horizontal_flip_image(self, image):
+        image = cv2.flip(image, 1)
+        return image
+
+    def horizontal_flip_path(self, trajectory):
+        trajectory = np.array(trajectory).copy()
+        if len(trajectory.shape) == 2:
+            trajectory[:, 1] *= -1
+        elif len(trajectory.shape) == 3:
+            trajectory[:, :, 1] *= -1
+        else:
+            raise RuntimeError(f"Error, horizontal_flip_path trajectory shape {trajectory.shape}")
+        return trajectory
+
     def __len__(self):
         if self.dataset_len_limit is None:
             return len(self.verified_pairs)
@@ -161,6 +175,7 @@ class ChopPreferenceDataset(Dataset):
         """
         if torch.is_tensor(idx):
             idx = idx.tolist()
+        flip = False if np.random.rand() > 0.5 else True
         # preferences
         json_path, img_path = self.verified_pairs[str(idx)]
         try:
@@ -193,8 +208,6 @@ class ChopPreferenceDataset(Dataset):
         for rank in ranking_list:
             path_data = _extract_path(pref_dict['paths'][str(rank)], num_points=self.num_points)
             points_list.append(path_data['points'])
-            left_boundaries.append(path_data['left_boundary'])
-            right_boundaries.append(path_data['right_boundary'])
         # images
         stem, json_file = os.path.split(json_path)
         stem, bag_name = os.path.split(stem)
@@ -217,17 +230,21 @@ class ChopPreferenceDataset(Dataset):
             return None
         if self.verbose:
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
-
+        if flip:
+            image = self.horizontal_flip_image(image)
+            points_list = self.horizontal_flip_path(points_list)
         if self.plot_imgs:
             stop_pref = pref_dict['stop']
             color_key = "GREEN"
             fig, ax = plt.subplots(2, 1)
             pref_path = pref_dict['paths'][str(ranking_list[0])]
-            pref_img = self.overlay_trajectory(image, pref_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
             rej_path = pref_dict['paths'][str(ranking_list[1])]
+            if flip:
+                for key in ['points', 'left_boundary', 'right_boundary']:
+                    pref_path[key] = self.horizontal_flip_path(pref_path[key])
+                    rej_path[key] = self.horizontal_flip_path(rej_path[key])
+            pref_img = self.overlay_trajectory(image, pref_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
             rej_img = self.overlay_trajectory(image, rej_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
-            # pref_view = cv2.cvtColor(pref_img, cv2.COLOR_BGR2RGB)
-            # rej_view = cv2.cvtColor(rej_img, cv2.COLOR_BGR2RGB)
             ax[0].imshow(pref_img)
             ax[1].imshow(rej_img)
             plt.show(block=True)
@@ -235,8 +252,6 @@ class ChopPreferenceDataset(Dataset):
         sample = {
             'image': image,
             'points': np.array(points_list),
-            # 'left_boundaries': np.array(left_boundaries),
-            # 'right_boundaries': np.array(right_boundaries),
         }
 
         if self.transform:
@@ -263,7 +278,7 @@ class ChopPreferenceDataset(Dataset):
             img_w, img_h)
 
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
-        draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=1.0, fill_color=color, edge_thickness=2)
+        draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.2, fill_color=color, edge_thickness=2)
         return img
 
 def main():
@@ -312,7 +327,7 @@ def main():
     parser.add_argument(
         "--num-points",
         type=str,
-        default=10,
+        default=8,
         help="number of points to resample for each trajectory",
     )
     parser.add_argument(
@@ -338,7 +353,7 @@ def main():
                                        plot_imgs=args.plot_imgs,
                                        num_points=args.num_points,
                                       )
-    idx = 100
+    idx = 55
     sample = my_dataset.__getitem__(idx)
     print(idx, "image shape:", sample['image'].shape,
           "points shape:", sample['points'].shape,

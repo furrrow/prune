@@ -19,6 +19,15 @@ from src.chop_dataloader import ChopPreferenceDataset
 from src.reward_model import RewardModel
 from src.loss_fn import bradley_terry_loss
 
+
+def scheduled_probability(epoch, n_epochs, start_prob=0.0, end_prob=1.0):
+    if n_epochs <= 1:
+        return float(end_prob)
+    progress = epoch / (n_epochs - 1)
+    progress = max(0.0, min(1.0, progress))
+    probability = start_prob + progress * (end_prob - start_prob)
+    return float(max(0.0, min(1.0, probability)))
+
 def main():
     with open('config/setting.yaml', 'r') as f:
         config = yaml.load(f, Loader=yaml.SafeLoader)
@@ -155,9 +164,9 @@ def main():
         model.train()
         train_loss = 0.0
         batch_count = 0
-
+        hard_pair_tally = 0
         for batch in tqdm(train_loader, desc="training loop..."):
-            image = batch["image"].to(device) # [Batch, 720, 1280, 3]
+            image = batch["image"].to(device, non_blocking=True) # [Batch, 3, H, W], already resized/rescaled
             points = batch["points"].to(device) # [Batch, n_points, 10, 3]
             points = points[:, :, :, :2] # [Batch, n_points, 10, 2], only get x and y coords
             B, n_points = points.shape[0:2]
@@ -180,6 +189,13 @@ def main():
             else:
                 preferred_reward = torch.concat((rank0, rank2))
                 rejected_reward = torch.concat((rank1, rank3))
+            # as we get later in the epochs we should use rank2 vs rank3 more often as this comparison should be harder
+            hard_pair_prob = scheduled_probability(epoch, n_epochs)
+            use_hard_pair = torch.rand(1).item() < hard_pair_prob
+            if use_hard_pair:
+                preferred_reward = rank2
+                rejected_reward = rank3
+                hard_pair_tally += 1
             # Compute Loss
             loss = criterion(preferred_reward, rejected_reward)
             # reward_reg_loss = lambda_reward * torch.mean(predicted_rewards ** 2)
@@ -191,7 +207,8 @@ def main():
                 print(f"global_step {global_step} batch_count {batch_count} charts/train_loss {loss.item():.4f}")
             train_loss += loss.item()
             if use_wandb:
-                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'], "charts/scheduler_lr": scheduler.get_last_lr()[0]}
+                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'],
+                         "charts/scheduler_lr": scheduler.get_last_lr()[0]}
                     , global_step)
             batch_count += 1
             global_step += 1
@@ -202,33 +219,31 @@ def main():
                     run.log({"charts/SPS": SPS, "epoch": epoch}, global_step)
         avg_train_loss = train_loss / len(train_loader)
         if use_wandb:
-            run.log({"charts/avg_train_loss": avg_train_loss, "epoch": epoch}, global_step)
+            run.log({"charts/avg_train_loss": avg_train_loss, "epoch": epoch, "hard_pair_prob": hard_pair_tally/batch_count},
+                    global_step)
 
         # Validation Loop
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
             for batch in tqdm(val_loader, desc="validation loop..."):
-                image = batch["image"].to(device)
+                image = batch["image"].to(device, non_blocking=True)
                 points = batch["points"].to(device)
                 points = points[:, :, :, :2]  # only get x and y coords
                 B, n_points = points.shape[0:2]
-                image = model.processor(image, return_tensors="pt")  # pixel_values: # [B, 3, 224, 224]
+                image = model.processor(images=image, return_tensors="pt", do_rescale=False)  # pixel_values: # [B, 3, 224, 224]
+                image = {k: v.to(device, non_blocking=True) for k, v in image.items()}
                 reward_prediction = model(points, image) # [batch * n_points]
 
                 # shape reward back into pairwise setting
                 reshaped_rwd = reward_prediction.reshape((B, n_points))
-                rank0 = reshaped_rwd[:, 0]
-                rank1 = reshaped_rwd[:, 1]
+                # rank0 = reshaped_rwd[:, 0]
+                # rank1 = reshaped_rwd[:, 1]
                 rank2 = reshaped_rwd[:, 2]
                 rank3 = reshaped_rwd[:, 3]
-                coin = torch.randint(0, 2, (1,)).item()
-                if coin == 0:
-                    preferred_reward = torch.concat((rank0, rank1))
-                    rejected_reward = torch.concat((rank2, rank3))
-                else:
-                    preferred_reward = torch.concat((rank0, rank2))
-                    rejected_reward = torch.concat((rank1, rank3))
+                # coin = torch.randint(0, 2, (1,)).item()
+                preferred_reward = rank2
+                rejected_reward = rank3
                 # Compute Loss
                 loss = criterion(preferred_reward, rejected_reward)
                 val_loss += loss.item()
