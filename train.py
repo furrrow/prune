@@ -64,8 +64,14 @@ def main():
         save_name = run.name
         # update hyperparams from the wandb sweep if there is one:
         if config['sweep']:
-            lr = run.config["lr"]
-            use_cls = run.config['use_cls']
+            for key, value in dict(run.config).items():
+                if key == "lr":
+                    config["learning_rate"] = float(value)
+                elif key in config:
+                    config[key] = value
+            lr = config["learning_rate"]
+            batch_size = config["batch_size"]
+            n_epochs = config["epochs"]
 
     print("model config:")
     print(json.dumps(config, indent=4))
@@ -77,7 +83,7 @@ def main():
                         num_blocks=config["num_blocks"],
                         verbose=config['verbose']).to(device)
     criterion = bradley_terry_loss
-    optimizer = optim.AdamW(model.parameters(), lr=float(lr), weight_decay=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=float(lr), weight_decay=float(config["weight_decay"]))
     if use_wandb:
         wandb.watch(model, log_freq=config['gradient_log_freq'])
 
@@ -108,17 +114,23 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=batch_size, pin_memory=True, num_workers=config['num_workers'])
     val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=True, num_workers=3)
 
-    # Define warmup scheduler
-    warmup_epochs = run_config['warmup_epochs']
-    warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
-                                                   total_iters=warmup_epochs)
-    cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=run_config['cosine_LR_T'],
-                                                                      T_mult=run_config['cosine_LR_mult'], eta_min=5e-6)
-    scheduler = optim.lr_scheduler.SequentialLR(
-        optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[warmup_epochs]
-    )
+    use_scheduler = bool(config.get("use_scheduler", True))
+    if config["sweep"] and config.get("disable_scheduler_during_sweep", True):
+        use_scheduler = False
+
+    if use_scheduler:
+        warmup_epochs = config['warmup_epochs']
+        warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
+                                                       total_iters=warmup_epochs)
+        cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=config['cosine_LR_T'],
+                                                                          T_mult=config['cosine_LR_mult'], eta_min=5e-6)
+        scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs]
+        )
+    else:
+        scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
 
     os.makedirs(checkpoint_dir, exist_ok=True)
     arch_path = f"{checkpoint_dir}/{save_name}_model_architecture.txt"
@@ -130,7 +142,7 @@ def main():
         print(f"checkpoint_dir: {checkpoint_dir}")
         os.makedirs(checkpoint_dir, exist_ok=True)
         with open(os.path.join(checkpoint_dir, "config.yaml"), "w") as f:
-            yaml.dump(run_config, f)
+            yaml.dump(config, f)
 
             # Load from latest checkpoint (if available)
             latest_checkpoint = None
@@ -147,7 +159,7 @@ def main():
                 print("Missing Layers (not in checkpoint):", len(missing_layers), total_layers)
                 # print(checkpoint['optimizer_state_dict'].keys())
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                # scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 start_epoch = checkpoint['epoch']
                 print(f"Loaded checkpoint from {load_checkpoint_path} at epoch {start_epoch}")
             else:
@@ -231,7 +243,7 @@ def main():
                 points = batch["points"].to(device)
                 points = points[:, :, :, :2]  # only get x and y coords
                 B, n_points = points.shape[0:2]
-                image = model.processor(images=image, return_tensors="pt", do_rescale=False)  # pixel_values: # [B, 3, 224, 224]
+                image = model.processor(images=image, return_tensors="pt")  # pixel_values: # [B, 3, 224, 224]
                 image = {k: v.to(device, non_blocking=True) for k, v in image.items()}
                 reward_prediction = model(points, image) # [batch * n_points]
 
@@ -300,8 +312,8 @@ if __name__ == "__main__":
             "name": "charts/avg_val_loss"
         },
         "parameters": {
-            "lr": {"max": 0.005, "min": 0.0001},
-            "use_cls": {"values": [True, False]},
+            "lr": {"distribution": "log_uniform_values", "min": 1e-5, "max": 5e-3},
+            "dropout": {"values": [0.0, 0.05, 0.1, 0.2]},
         },
     }
     if run_config['sweep']:

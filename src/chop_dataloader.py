@@ -260,7 +260,6 @@ class ChopPreferenceDataset(Dataset):
         return sample
 
     def overlay_trajectory(self, image, path_data, color, robot_name, bypass):
-
         img = image.copy()
         if bypass:
             return img

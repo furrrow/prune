@@ -15,7 +15,7 @@ device: "cuda"
 project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
 learning_rate: 2e-4
-batch_size: 16 # 256   # 512 = 14GB VRAM, 50GB RAM
+batch_size: 256   # 512 = 14GB VRAM, 50GB RAM
 epochs: 1024
 d_model: 768
 num_queries: 1
@@ -27,6 +27,8 @@ dropout: 0.1
 sweep: false
 use_wandb: true
 warmup_epochs: 3
+use_scheduler: true
+disable_scheduler_during_sweep: true
 cosine_LR_T: 10
 cosine_LR_mult: 2
 cosine_T_max: 100

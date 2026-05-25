@@ -46,7 +46,8 @@ class RewardModel(nn.Module):
         self.num_register_tokens = self.image_feature_extractor.config.num_register_tokens
 
         self.trajectory_transformer = TrajectoryTransformer(d_model=d_model,
-                                                            num_blocks=num_blocks)
+                                                            num_blocks=num_blocks,
+                                                            dropout=dropout)
 
         self.image_proj = nn.Identity() if self.image_dim == d_model else nn.Linear(self.image_dim, d_model)
 
