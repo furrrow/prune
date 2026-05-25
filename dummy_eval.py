@@ -56,46 +56,79 @@ def infer_robot_name(dataset, sample_idx):
     return "spot"
 
 dummy_points = torch.tensor(
-        [[[ 1.6775e-01, -3.4005e-03],
-         [ 3.3553e-01, -2.3494e-03],
-         [ 5.0332e-01, -6.5027e-04],
-         [ 6.7110e-01,  1.4282e-03],
-         [ 8.3888e-01,  3.5398e-03],
-         [ 1.0067e+00,  5.5226e-03],
-         [ 1.1744e+00,  7.4498e-03],
-         [ 1.3422e+00,  9.1428e-03],
-         [ 1.5100e+00,  1.0821e-02],
-         [ 1.6778e+00,  1.2498e-02]],
-        [[ 1.6758e-01,  3.6687e-03],
-         [ 3.3500e-01,  1.1785e-02],
-         [ 5.0240e-01,  2.0546e-02],
-         [ 6.6977e-01,  2.9690e-02],
-         [ 8.3715e-01,  3.8866e-02],
-         [ 1.0045e+00,  4.7915e-02],
-         [ 1.1719e+00,  5.6908e-02],
-         [ 1.3393e+00,  6.5667e-02],
-         [ 1.5067e+00,  7.4411e-02],
-         [ 1.6741e+00,  8.3154e-02]],
-        [[ 1.6838e-01, -2.8671e-02],
-         [ 3.3746e-01, -5.2884e-02],
-         [ 5.0664e-01, -7.6450e-02],
-         [ 6.7586e-01, -9.9708e-02],
-         [ 8.4509e-01, -1.2294e-01],
-         [ 1.0143e+00, -1.4631e-01],
-         [ 1.1835e+00, -1.6974e-01],
-         [ 1.3527e+00, -1.9339e-01],
-         [ 1.5218e+00, -2.1706e-01],
-         [ 1.6910e+00, -2.4072e-01]],
-        [[ 1.6677e-01,  3.6173e-02],
-         [ 3.3253e-01,  7.6759e-02],
-         [ 4.9813e-01,  1.1796e-01],
-         [ 6.6367e-01,  1.5947e-01],
-         [ 8.2919e-01,  2.0099e-01],
-         [ 9.9476e-01,  2.4238e-01],
-         [ 1.1603e+00,  2.8371e-01],
-         [ 1.3260e+00,  3.2483e-01],
-         [ 1.4916e+00,  3.6593e-01],
-         [ 1.6572e+00,  4.0703e-01]]])
+    [[[2.0970e-01, -3.6237e-03, 0.0000e+00],
+      [4.1943e-01, -1.4998e-03, 0.0000e+00],
+      [6.2915e-01, 9.0028e-04, 0.0000e+00],
+      [8.3888e-01, 3.5398e-03, 0.0000e+00],
+      [1.0486e+00, 6.0044e-03, 0.0000e+00],
+      [1.2583e+00, 8.3039e-03, 0.0000e+00],
+      [1.4681e+00, 1.0401e-02, 0.0000e+00],
+      [1.6778e+00, 1.2498e-02, 0.0000e+00]],
+     [[2.0945e-01, 5.2138e-03, 0.0000e+00],
+      [4.1870e-01, 1.6165e-02, 0.0000e+00],
+      [6.2793e-01, 2.7396e-02, 0.0000e+00],
+      [8.3715e-01, 3.8866e-02, 0.0000e+00],
+      [1.0464e+00, 5.0163e-02, 0.0000e+00],
+      [1.2556e+00, 6.1295e-02, 0.0000e+00],
+      [1.4649e+00, 7.2225e-02, 0.0000e+00],
+      [1.6741e+00, 8.3154e-02, 0.0000e+00]],
+     [[2.1058e-01, -3.5210e-02, 0.0000e+00],
+      [4.2205e-01, -6.4667e-02, 0.0000e+00],
+      [6.3356e-01, -9.3901e-02, 0.0000e+00],
+      [8.4509e-01, -1.2294e-01, 0.0000e+00],
+      [1.0566e+00, -1.5217e-01, 0.0000e+00],
+      [1.2681e+00, -1.8156e-01, 0.0000e+00],
+      [1.4795e+00, -2.1114e-01, 0.0000e+00],
+      [1.6910e+00, -2.4072e-01, 0.0000e+00]],
+     [[2.0832e-01, 4.5858e-02, 0.0000e+00],
+      [4.1533e-01, 9.7360e-02, 0.0000e+00],
+      [6.2229e-01, 1.4908e-01, 0.0000e+00],
+      [8.2919e-01, 2.0099e-01, 0.0000e+00],
+      [1.0361e+00, 2.5271e-01, 0.0000e+00],
+      [1.2431e+00, 3.0428e-01, 0.0000e+00],
+      [1.4502e+00, 3.5565e-01, 0.0000e+00],
+      [1.6572e+00, 4.0703e-01, 0.0000e+00]],
+     [[2.4595e-01, -3.9302e-03, 0.0000e+00],
+      [4.9186e-01, -9.9386e-03, 0.0000e+00],
+      [7.3777e-01, -1.6369e-02, 0.0000e+00],
+      [9.8368e-01, -2.2585e-02, 0.0000e+00],
+      [1.2296e+00, -2.8527e-02, 0.0000e+00],
+      [1.4755e+00, -3.4321e-02, 0.0000e+00],
+      [1.7214e+00, -3.9956e-02, 0.0000e+00],
+      [1.9674e+00, -4.5483e-02, 0.0000e+00]],
+     [[2.4593e-01, -4.7674e-03, 0.0000e+00],
+      [4.9183e-01, -1.1613e-02, 0.0000e+00],
+      [7.3771e-01, -1.8880e-02, 0.0000e+00],
+      [9.8360e-01, -2.5933e-02, 0.0000e+00],
+      [1.2295e+00, -3.2712e-02, 0.0000e+00],
+      [1.4754e+00, -3.9343e-02, 0.0000e+00],
+      [1.7213e+00, -4.5816e-02, 0.0000e+00],
+      [1.9672e+00, -5.2179e-02, 0.0000e+00]],
+     [[2.4542e-01, -3.2770e-02, 0.0000e+00],
+      [4.9057e-01, -6.7604e-02, 0.0000e+00],
+      [7.3566e-01, -1.0284e-01, 0.0000e+00],
+      [9.8079e-01, -1.3785e-01, 0.0000e+00],
+      [1.2259e+00, -1.7259e-01, 0.0000e+00],
+      [1.4711e+00, -2.0719e-01, 0.0000e+00],
+      [1.7163e+00, -2.4163e-01, 0.0000e+00],
+      [1.9616e+00, -2.7594e-01, 0.0000e+00]],
+     [[2.4644e-01, 2.3181e-02, 0.0000e+00],
+      [4.9308e-01, 4.4287e-02, 0.0000e+00],
+      [7.3975e-01, 6.4990e-02, 0.0000e+00],
+      [9.8641e-01, 8.5914e-02, 0.0000e+00],
+      [1.2330e+00, 1.0711e-01, 0.0000e+00],
+      [1.4797e+00, 1.2845e-01, 0.0000e+00],
+      [1.7263e+00, 1.4996e-01, 0.0000e+00],
+      [1.9729e+00, 1.7158e-01, 0.0000e+00]],
+     [[2.3334e-01, 1.6606e-02, 0.0000e+00],
+      [4.6672e-01, 3.2838e-02, 0.0000e+00],
+      [7.0010e-01, 4.8887e-02, 0.0000e+00],
+      [9.3347e-01, 6.5180e-02, 0.0000e+00],
+      [1.1668e+00, 8.1746e-02, 0.0000e+00],
+      [1.4002e+00, 9.8384e-02, 0.0000e+00],
+      [1.6335e+00, 1.1520e-01, 0.0000e+00],
+      [1.8668e+00, 1.3210e-01, 0.0000e+00]]]
+)
 
 def overlay_paths_on_image(image, trajectories, rewards, K, dist, T_cam_from_base):
     """
@@ -295,7 +328,6 @@ def load_model_from_checkpoint(model, optimizer, load_checkpoint_path, device):
 
 
 def main():
-
     config_file_path = "config/setting.yaml"
     # config_file_path = "config/config_point_based.yaml"
     load_checkpoint_path = "./weights/model_150_epoch_34.pth"
@@ -325,18 +357,12 @@ def main():
     exp_name = f"{project_name}_{timestamp}"
     checkpoint_dir = os.path.join(checkpoint_dir, exp_name)
     save_name = "run"
-    if config['sweep']:
-        use_wandb = True
 
     if use_wandb:
         run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir,
                          config=config)
         config['wandb_run_name'] = run.name
         save_name = run.name
-        # update hyperparams from the wandb sweep if there is one:
-        if config['sweep']:
-            lr = run.config["lr"]
-            use_cls = run.config['use_cls']
 
     print("model config:")
     print(json.dumps(config, indent=4))
@@ -376,10 +402,6 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=True, num_workers=3)
 
     os.makedirs(checkpoint_dir, exist_ok=True)
-    arch_path = f"{checkpoint_dir}/{save_name}_model_architecture.txt"
-
-    with open(arch_path, "w") as f:
-        f.write(str(model))
 
     if checkpoint_dir is not None:
         print(f"checkpoint_dir: {checkpoint_dir}")
@@ -389,18 +411,14 @@ def main():
         os.makedirs(plot_dir, exist_ok=True)
         with open(os.path.join(checkpoint_dir, "config.yaml"), "w") as f:
             yaml.dump(run_config, f)
-
-            # Load from latest checkpoint (if available)
-            start_epoch = load_model_from_checkpoint(model, optimizer, load_checkpoint_path, device)
             model.eval()
-
 
     global_step = 0
     start_time = time.time()
     # Eval Loop
     dataloader = train_loader
     # dataloader = val_loader
-    for epoch in range(start_epoch, n_epochs):  # Start from checkpointed epoch
+    for epoch in range(0, 1):  # Start from checkpointed epoch
         train_loss = 0.0
         batch_count = 0
 
@@ -409,9 +427,15 @@ def main():
             points = batch["points"].to(device) # [Batch, n_points, 10, 3]
             points = points[:, :, :, :2] # [Batch, n_points, 10, 2], only get x and y coords
             B, n_points, k, d = points.shape
-            display_image = image[0]
+
             sample_idx = batch_count * batch_size
             robot_name = infer_robot_name(dataloader.dataset, sample_idx)
+
+            display_image = image[0]
+            image = display_image.unsqueeze(0).repeat(B, 1, 1, 1)
+            flat_points = points.reshape(-1, k, 2)
+            flat_points[:len(dummy_points)] = dummy_points[:, :, :2]
+            points = points.reshape(B, n_points, k, 2)
             # optimizer.zero_grad()
             # Forward pass
             image = model.processor(image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
@@ -420,26 +444,14 @@ def main():
 
             # shape reward back into pairwise setting
             reshaped_rwd = reward_prediction.reshape((B, n_points))
-            rank0 = reshaped_rwd[:, 0]
-            rank1 = reshaped_rwd[:, 1]
-            rank2 = reshaped_rwd[:, 2]
-            rank3 = reshaped_rwd[:, 3]
-            coin = torch.randint(0, 2, (1,)).item()
-            if coin == 0:
-                preferred_reward = torch.concat((rank0, rank1))
-                rejected_reward = torch.concat((rank2, rank3))
-            else:
-                preferred_reward = torch.concat((rank0, rank2))
-                rejected_reward = torch.concat((rank1, rank3))
-            loss = criterion(preferred_reward, rejected_reward)
             display_points = points.reshape(-1, k, 2)
-            rand_indices = np.append(np.array([0]), np.random.randint(0, 64, 9))
-
-            # display_points = dummy_points.to(device)
+            rand_indices = np.arange(len(dummy_points))
+            display_reward = reshaped_rwd.reshape(-1)[rand_indices]
+            print(f"best reward idx {torch.argmax(display_reward).item()} out of reward {display_reward}")
             plot_trajectory(
                 display_image,
                 display_points[rand_indices],
-                reshaped_rwd.reshape(-1)[rand_indices],
+                display_reward,
                 K=dataloader.dataset.K,
                 dist=dataloader.dataset.dist,
                 T_cam_from_base=dataloader.dataset.T_cam_from_base[robot_name],
@@ -447,14 +459,6 @@ def main():
                 show=True,
                 title=f"trajectory visualization | step {global_step}",
             )
-            # loss.backward()
-            # optimizer.step()
-            if verbose:
-                print(f"global_step {global_step} batch_count {batch_count} charts/train_loss {loss.mean().item():.4f}")
-            train_loss += loss.item()
-            if use_wandb:
-                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr']}
-                    , global_step)
             batch_count += 1
             global_step += 1
 

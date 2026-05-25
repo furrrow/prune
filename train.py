@@ -43,6 +43,7 @@ def main():
     n_epochs = config['epochs']
     use_wandb = config['use_wandb']
     verbose = config['verbose']
+    lambda_reward = float(config.get("reward_l2", 1e-3))
     # Get the current time
     now = datetime.datetime.now()
 
@@ -181,12 +182,17 @@ def main():
             image = batch["image"].to(device, non_blocking=True) # [Batch, 3, H, W], already resized/rescaled
             points = batch["points"].to(device) # [Batch, n_points, 10, 3]
             points = points[:, :, :, :2] # [Batch, n_points, 10, 2], only get x and y coords
-            B, n_points = points.shape[0:2]
+            B, n_points, k, d = points.shape
             optimizer.zero_grad()
-
+            # adding shuffling to points.
+            flat_pts = points.reshape(-1, k, d)
+            rand_perm = torch.randperm(flat_pts.shape[0], device=flat_pts.device)
+            inv_perm = torch.argsort(rand_perm)
+            flat_pts = flat_pts[rand_perm]
             # Forward pass
             image = model.processor(image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
-            reward_prediction = model(points, image) # [batch * n_points]
+            reward_prediction = model(flat_pts, image, B=B, M=n_points) # [batch * n_points]
+            reward_prediction = reward_prediction[inv_perm]
 
             # shape reward back into pairwise setting
             reshaped_rwd = reward_prediction.reshape((B, n_points))
@@ -209,9 +215,11 @@ def main():
                 rejected_reward = rank3
                 hard_pair_tally += 1
             # Compute Loss
-            loss = criterion(preferred_reward, rejected_reward)
-            # reward_reg_loss = lambda_reward * torch.mean(predicted_rewards ** 2)
-            # loss = loss + reward_reg_loss
+            # loss = criterion(preferred_reward, rejected_reward)
+
+            bt_loss = criterion(preferred_reward, rejected_reward)
+            reward_l2 = torch.mean(reshaped_rwd ** 2)
+            loss = bt_loss + lambda_reward * reward_l2
             # Backpropagation
             loss.backward()
             optimizer.step()
@@ -257,7 +265,10 @@ def main():
                 preferred_reward = rank2
                 rejected_reward = rank3
                 # Compute Loss
-                loss = criterion(preferred_reward, rejected_reward)
+                # loss = criterion(preferred_reward, rejected_reward)
+                bt_loss = criterion(preferred_reward, rejected_reward)
+                reward_l2 = torch.mean(reshaped_rwd ** 2)
+                loss = bt_loss + lambda_reward * reward_l2
                 val_loss += loss.item()
                 if verbose:
                     print(f"global_step {global_step} batch_count {batch_count} val_loss {loss.item():.4f}")
@@ -313,7 +324,7 @@ if __name__ == "__main__":
         },
         "parameters": {
             "lr": {"distribution": "log_uniform_values", "min": 1e-5, "max": 5e-3},
-            "dropout": {"values": [0.0, 0.05, 0.1, 0.2]},
+            "dropout": {"values": [0.05, 0.1, 0.15]},
         },
     }
     if run_config['sweep']:
@@ -321,6 +332,6 @@ if __name__ == "__main__":
         sweep_id = wandb.sweep(sweep=sweep_configuration, entity=run_config['entity'],
                                project=run_config['project_name'])
         # Start the sweep job
-        wandb.agent(sweep_id, function=main, count=20)
+        wandb.agent(sweep_id, function=main, count=10)
     else:
         main()

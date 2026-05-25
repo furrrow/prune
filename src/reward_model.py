@@ -65,7 +65,7 @@ class RewardModel(nn.Module):
             nn.Linear(d_model // 2, 1),
         )
 
-    def forward(self, pts: torch.Tensor, image_inputs) -> torch.Tensor:
+    def forward(self, pts: torch.Tensor, image_inputs, B=None, M=None) -> torch.Tensor:
         """
         Args:
             pts: (B, M, K, 2) tensor of point trajectories
@@ -78,8 +78,15 @@ class RewardModel(nn.Module):
         Returns:
             rewards: (BxM) tensor of scalar rewards for each trajectory
         """
-        B, M, K, _ = pts.shape
-        pts_flat = pts.reshape(B * M, K, 2).float()
+        if len(pts.shape) == 4:
+            B, M, K, _ = pts.shape
+            pts_flat = pts.reshape(B * M, K, 2).float()
+        elif len(pts.shape) == 3: # assuming already flat, we need B and M from outside
+            if (B is None) or (M is None):
+                Exception(f"batch or traj number needed in reward model forward function")
+            pts_flat = pts.float()
+        else:
+            Exception(f"reward mode pts shape {pts.shape} mismatch")
         x = self.trajectory_transformer(pts_flat)  # (B, K+1, D_model) with CLS at index 0]
 
         with torch.no_grad():
