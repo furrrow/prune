@@ -321,6 +321,6 @@ if __name__ == "__main__":
         sweep_id = wandb.sweep(sweep=sweep_configuration, entity=run_config['entity'],
                                project=run_config['project_name'])
         # Start the sweep job
-        wandb.agent(sweep_id, function=main, count=5)
+        wandb.agent(sweep_id, function=main, count=20)
     else:
         main()

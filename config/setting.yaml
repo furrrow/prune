@@ -16,15 +16,15 @@ project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
 learning_rate: 2e-4
 batch_size: 256   # 512 = 14GB VRAM, 50GB RAM
-epochs: 1024
+epochs: 5
 d_model: 768
 num_queries: 1
 num_workers: 1  # if local, recommend no more than 3 @ batch_size 512
 prefetch_factor: 8
 batch_print_freq: 1
-checkpoint_freq: 1
+checkpoint_freq: 999
 dropout: 0.1
-sweep: false
+sweep: true
 use_wandb: true
 warmup_epochs: 3
 use_scheduler: true
@@ -46,12 +46,4 @@ num_blocks: 4
 num_heads: 4
 train_json : "./data/train.json"
 test_json : "./data/test.json"
-use_amp: true
 seed: 42
-use_lmdb: true
-lmdb_root: "./data/lmdb_cache"
-lmdb_build_if_missing: true
-lmdb_overwrite: false
-top_k_metric: 2
-use_rank_gap_weight: true
-rank_gap_power: 1.0
