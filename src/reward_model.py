@@ -76,7 +76,7 @@ class ImageRewardModel(nn.Module):
             self.image_feature_extractor.eval()
         return self
 
-    def forward(self, orig_input, annotated_input) -> torch.Tensor:
+    def forward(self, orig_input, annotated_input, input_type="image") -> torch.Tensor:
         """
         Args:
             pts: (B, M, K, 2) tensor of point trajectories
@@ -89,16 +89,19 @@ class ImageRewardModel(nn.Module):
         Returns:
             rewards: (B, M) tensor for 4D trajectory input, or (B*M,) tensor for already-flat 3D input
         """
-        if self.freeze_image_encoder:
-            with torch.no_grad():
+        if input_type=="image":
+            if self.freeze_image_encoder:
+                with torch.no_grad():
+                    orig_output = self.image_feature_extractor(**orig_input)
+                    annotated_output = self.image_feature_extractor(**annotated_input)
+            else:
                 orig_output = self.image_feature_extractor(**orig_input)
                 annotated_output = self.image_feature_extractor(**annotated_input)
-        else:
-            orig_output = self.image_feature_extractor(**orig_input)
-            annotated_output = self.image_feature_extractor(**annotated_input)
-
-        orig_features = orig_output.last_hidden_state # [B, 196, 1408])
-        annotated_features = annotated_output.last_hidden_state # [B, 196, 1408])
+            orig_features = orig_output.last_hidden_state  # [B, 196, 1408])
+            annotated_features = annotated_output.last_hidden_state  # [B, 196, 1408])
+        elif input_type=="features": # the image_feature_extractor is already done.
+            orig_features = orig_input
+            annotated_features = annotated_input
         batch, k_sq = annotated_features.shape[0:2]
         k = torch.sqrt(torch.tensor(k_sq)).item()
         # Self-Attention on Vision Features
@@ -136,8 +139,7 @@ class TrajectoryRewardModel(nn.Module):
                  verbose: bool = True,
                  image_feature_extractor_name: str = "jmtzt/ijepa_vitg16_22k",
                  freeze_image_encoder: bool = True,
-                 image_feature_extractor: nn.Module | None = None,
-                 processor=None):
+                 image_feature_extractor: nn.Module | None = None):
         super().__init__()
         # self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
         self.image_feature_extractor_name = image_feature_extractor_name
@@ -148,9 +150,6 @@ class TrajectoryRewardModel(nn.Module):
         # Load DINOv3
         if verbose:
             print("loading model", self.image_feature_extractor_name)
-        self.processor = processor
-        if self.processor is None:
-            self.processor = AutoProcessor.from_pretrained(self.image_feature_extractor_name)
         self.image_feature_extractor = image_feature_extractor
         if self.image_feature_extractor is None:
             self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)

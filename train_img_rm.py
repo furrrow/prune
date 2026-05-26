@@ -15,7 +15,7 @@ from tqdm import tqdm
 import yaml
 import os
 
-from src.chop_dataloader import ChopPreferenceDataset
+from src.chop_dataloader import ChopImageDataset
 from src.reward_model import ImageRewardModel
 from src.loss_fn import bradley_terry_loss
 
@@ -86,22 +86,22 @@ def main():
     if use_wandb:
         wandb.watch(model, log_freq=config['gradient_log_freq'])
 
-    train_dataset = ChopPreferenceDataset(preference_root=config['preference_root'],
-                                          image_root=config['image_root'],
+    train_dataset = ChopImageDataset(preference_root=config['preference_root'],
+                                     image_root=config['image_root'],
+                                     image_overlay_root=config['image_overlay_root'],
                                           calib_file=config['calibration_file'],
                                           img_extension=config['image_ext'],
                                           mode="train",
-                                          return_img=True,
                                           verbose=False,
                                           plot_imgs=config['plot_imgs'],
                                           dataset_len_limit=None,
                                           )
-    val_dataset = ChopPreferenceDataset(preference_root=config['preference_root'],
-                                        image_root=config['image_root'],
+    val_dataset = ChopImageDataset(preference_root=config['preference_root'],
+                                   image_root=config['image_root'],
+                                   image_overlay_root=config['image_overlay_root'],
                                         calib_file=config['calibration_file'],
                                         img_extension=config['image_ext'],
                                         mode="test",
-                                        return_img=True,
                                         verbose=False,
                                         plot_imgs=config['plot_imgs'],
                                         dataset_len_limit=None,
@@ -176,20 +176,50 @@ def main():
         batch_count = 0
         hard_pair_tally = 0
         for batch in tqdm(train_loader, desc="training loop..."):
-            original = batch["image"].to(device)
-            preferred = batch["preferred"].to(device)
-            rejected = batch["rejected"].to(device)
+            images = batch["image"].to(device)
+            B, n_img, h, w, c = images.shape
+            images = images.reshape(-1, h, w, c)
             optimizer.zero_grad()
 
             # Forward pass
-            original = model.processor(original, return_tensors="pt")
-            preferred = model.processor(preferred, return_tensors="pt")
-            rejected = model.processor(rejected, return_tensors="pt")
-            preferred_reward = model(original, preferred)
-            rejected_reward = model(original, rejected)
+            with torch.no_grad():
+                processed_imgs = model.processor(images, return_tensors="pt")
+                img_features = model.image_feature_extractor(**processed_imgs).last_hidden_state
+            _, c, d = img_features.shape
+            img_features = img_features.reshape(B, n_img, c, d)
+            original = img_features[:, 0]
+            rank0_img = img_features[:, 1]
+            rank1_img = img_features[:, 2]
+            rank2_img = img_features[:, 3]
+            rank3_img = img_features[:, 4]
+
+            # as we get later in the epochs we should use rank2 vs rank3 more often as this comparison should be harder
+            hard_pair_prob = scheduled_probability(epoch, n_epochs)
+            use_hard_pair = torch.rand(1).item() < hard_pair_prob
+            if use_hard_pair:
+                preferred_reward = model(original, rank2_img, input_type="features")
+                rejected_reward = model(original, rank3_img, input_type="features")
+                hard_pair_tally += 1
+            else:
+                rank0 = model(original, rank0_img, input_type="features")
+                rank1 = model(original, rank1_img, input_type="features")
+                rank2 = model(original, rank2_img, input_type="features")
+                rank3 = model(original, rank3_img, input_type="features")
+
+                # shape reward back into pairwise setting
+                coin = torch.randint(0, 2, (1,)).item()
+                if coin == 0:
+                    preferred_reward = torch.concat((rank0, rank1))
+                    rejected_reward = torch.concat((rank2, rank3))
+                else:
+                    preferred_reward = torch.concat((rank0, rank2))
+                    rejected_reward = torch.concat((rank1, rank3))
 
             # Compute Loss
-            loss = criterion(preferred_reward, rejected_reward)
+            # loss = criterion(preferred_reward, rejected_reward)
+            bt_loss = criterion(preferred_reward, rejected_reward)
+            reward_l2 = torch.mean(preferred_reward ** 2) + torch.mean(rejected_reward ** 2)
+            loss = bt_loss + lambda_reward * reward_l2
             # Backpropagation
             loss.backward()
             optimizer.step()
@@ -202,7 +232,6 @@ def main():
                     , global_step)
             batch_count += 1
             global_step += 1
-
             if batch_count % config['batch_print_freq'] == 0:
                 SPS = global_step / (time.time() - start_time)
                 if use_wandb:
@@ -217,15 +246,18 @@ def main():
         val_loss = 0.0
         with torch.no_grad():
             for batch in tqdm(val_loader, desc="validation loop..."):
-                original = batch["image"].to(device)
-                preferred = batch["preferred"].to(device)
-                rejected = batch["rejected"].to(device)
-                original = model.processor(original, return_tensors="pt")
-                preferred = model.processor(preferred, return_tensors="pt")
-                rejected = model.processor(rejected, return_tensors="pt")
-                preferred_reward = model(original, preferred)
-                rejected_reward = model(original, rejected)
-                loss = criterion(preferred_reward, rejected_reward)
+                images = batch["image"].to(device)
+                B, n_img, h, w, c = images.shape
+                images = images.reshape(-1, h, w, c)
+                with torch.no_grad():
+                    processed_imgs = model.processor(images, return_tensors="pt")
+                    img_features = model.image_feature_extractor(**processed_imgs).last_hidden_state
+
+                preferred_reward = model(img_features[:, 0], img_features[:, 2], input_type="features")
+                rejected_reward = model(img_features[:, 0], img_features[:, 4], input_type="features")
+                bt_loss = criterion(preferred_reward, rejected_reward)
+                reward_l2 = torch.mean(preferred_reward ** 2) + torch.mean(rejected_reward ** 2)
+                loss = bt_loss + lambda_reward * reward_l2
                 val_loss += loss.item()
                 if verbose:
                     print(f"global_step {global_step} batch_count {batch_count} val_loss {loss.item():.4f}")

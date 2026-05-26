@@ -76,11 +76,11 @@ def _extract_path(data: Dict[str, Any], num_points: int) -> Dict[str, Any]:
     }
 
 
-class ChopPreferenceDataset(Dataset):
+class ChopTrajectoryDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 mode, return_img, verbose, plot_imgs, num_points=8, re_index=False, dataset_len_limit=None,
+                 mode, verbose, plot_imgs, num_points=8, re_index=False, dataset_len_limit=None,
                  pick_mode="all", transform=None):
         """
         Arguments:
@@ -101,7 +101,6 @@ class ChopPreferenceDataset(Dataset):
         self.img_extension = img_extension
         self.calib_file = calib_file
         self.mode = mode
-        self.return_img = return_img
         self.verbose = verbose
         self.plot_imgs = plot_imgs
         self.dataset_len_limit = dataset_len_limit
@@ -236,7 +235,7 @@ class ChopPreferenceDataset(Dataset):
         if flip:
             image = self.horizontal_flip_image(image)
             points_list = self.horizontal_flip_path(points_list)
-        if self.return_img or self.plot_imgs:
+        if self.plot_imgs:
             stop_pref = pref_dict['stop']
             color_key = "GREEN"
             pref_path = pref_dict['paths'][str(ranking_list[0])]
@@ -255,20 +254,10 @@ class ChopPreferenceDataset(Dataset):
             ax[0].imshow(pref_img)
             ax[1].imshow(rej_img)
             plt.show(block=True)
-        if self.return_img:
-            sample = {
-                'image': image,
-                'preferred': pref_img,
-                'rejected': rej_img,
-                'points': np.array(points_list),
-                'left_boundaries': np.array(left_boundaries),
-                'right_boundaries': np.array(right_boundaries),
-            }
-        else:
-            sample = {
-                'image': image,
-                'points': np.array(points_list),
-            }
+        sample = {
+            'image': image,
+            'points': np.array(points_list),
+        }
 
         if self.transform:
             sample = self.transform(sample)
@@ -295,6 +284,156 @@ class ChopPreferenceDataset(Dataset):
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
         draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.5, fill_color=color, edge_thickness=2)
         return img
+class ChopImageDataset(Dataset):
+    """CHOP preference dataset"""
+
+    def __init__(self, preference_root, image_root, image_overlay_root, img_extension, calib_file,
+                 mode, verbose, plot_imgs, num_points=8, re_index=False, dataset_len_limit=None,
+                 pick_mode="all", transform=None):
+        """
+        Arguments:
+            preference_root (string): Path to the preference dataset.
+            image_root (string): Directory of all SCAND images (not rosbags).\
+            img_extension (string): Extension of image files, e.g. png
+            calib_file (string): location of calibration file for intrinsics & extrinsics
+            mode (string): 'train' or 'test'
+            num_points (int): number of points per trajectory to resample to
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+            pick_mode:
+                two: randomly pick two where first trajectory is ranked higher than the next
+                all: return all four
+        """
+        self.preference_root = preference_root
+        self.image_root = image_root
+        self.image_overlay_root = image_overlay_root
+        self.img_extension = img_extension
+        self.calib_file = calib_file
+        self.mode = mode
+        self.verbose = verbose
+        self.plot_imgs = plot_imgs
+        self.dataset_len_limit = dataset_len_limit
+        self.pick_mode = pick_mode
+        self.transform = transform
+        if not os.path.exists(self.preference_root):
+            print(f"ERROR, preference root not found in {self.preference_root}")
+            exit()
+        self.json_paths = Path(self.preference_root) / self.mode
+        self.glob_list = sorted(glob.glob(f"{self.json_paths}/**/*.json", recursive=True))
+        self.num_points = num_points
+        self.re_index = re_index
+        with open(self.calib_file, "r") as f:
+            calib_data = json.load(f)
+        fx, fy, cx, cy = (calib_data['scand_kinect_intrinsics']['fx'], calib_data['scand_kinect_intrinsics']['fy'],
+                          calib_data['scand_kinect_intrinsics']['cx'], calib_data['scand_kinect_intrinsics']['cy'])
+        self.T_base_from_cam = {}
+        self.T_cam_from_base = {}
+
+        self.K, self.dist, self.T_base_from_cam["jackal"] = load_calibration(self.calib_file, fx, fy, cx, cy,
+                                                                             mode="jackal")
+        self.K, self.dist, self.T_base_from_cam["spot"] = load_calibration(self.calib_file, fx, fy, cx, cy,
+                                                                           mode="spot")
+        self.T_cam_from_base["jackal"] = np.linalg.inv(self.T_base_from_cam["jackal"])
+        self.T_cam_from_base["spot"] = np.linalg.inv(self.T_base_from_cam["spot"])
+        self.pair_scratch_file = f"{mode}_scratch.json"
+        self.verified_pairs = {}
+        if os.path.exists(self.pair_scratch_file) and (self.re_index == False):
+            with open(self.pair_scratch_file, "r") as file:
+                self.verified_pairs = json.load(file)
+            print(f"{self.pair_scratch_file} loaded")
+        else:
+            for json_path in tqdm(self.glob_list, desc="verifying preference-image matching"):
+                stem, json_file = os.path.split(json_path)
+                stem, bag_name = os.path.split(stem)
+                img_path = os.path.join(self.image_root, bag_name)
+                img_name = f"img_{Path(json_file).stem}.{self.img_extension}"
+                img_path = os.path.join(img_path, img_name)
+                # verify preference exists:
+                if os.path.exists(json_path) and os.path.exists(img_path):
+                    self.verified_pairs[str(len(self.verified_pairs))] = (json_path, img_path)
+            with open(self.pair_scratch_file, "w") as f:
+                json.dump(self.verified_pairs, f, indent=4)
+
+    def horizontal_flip_image(self, image):
+        image = cv2.flip(image, 1)
+        return image
+
+    def horizontal_flip_path(self, trajectory):
+        trajectory = np.array(trajectory).copy()
+        if len(trajectory.shape) == 2:
+            trajectory[:, 1] *= -1
+        elif len(trajectory.shape) == 3:
+            trajectory[:, :, 1] *= -1
+        else:
+            raise RuntimeError(f"Error, horizontal_flip_path trajectory shape {trajectory.shape}")
+        return trajectory
+
+    def __len__(self):
+        if self.dataset_len_limit is None:
+            return len(self.verified_pairs)
+        else:
+            len_limit = min(len(self.verified_pairs), int(self.dataset_len_limit))
+            print(f"dataloader artificially limited to len {len_limit}")
+            return len_limit
+
+    def __getitem__(self, idx):
+        """
+        pref_dict keys:
+        dict_keys(['frame_idx', 'robot_width', 'paths', 'preference', 'pairwise', 'position', 'yaw', 'stop'])
+        pref_dict['paths']['0'].keys():
+        dict_keys(['points', 'left_boundary', 'right_boundary', 'timestamp'])
+        """
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        flip = False if np.random.rand() > 0.5 else True
+        # preferences
+        json_path, img_path = self.verified_pairs[str(idx)]
+
+        # pick two random rankings where the first one is better ranked than the next,
+        if self.pick_mode == "two":
+            first_pick = np.random.randint(0, 3)
+            second_pick = first_pick + 1
+            pick_list = np.array([first_pick, second_pick])
+        elif self.pick_mode == "all":
+            pick_list = np.arange(0, 4)
+
+        # images
+        image_path_list = [img_path]
+        for pick in pick_list:
+            img_stem, img_name = os.path.split(img_path)
+            stem, bag_name = os.path.split(img_stem)
+            path_to_get = f"{self.image_overlay_root}/{str(pick)}/{bag_name}/{img_name}"
+            image_path_list.append(path_to_get)
+        image_list = []
+        for img_path in image_path_list:
+            if os.path.exists(img_path):
+                image = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
+                if flip:
+                    image = self.horizontal_flip_image(image)
+            else:
+                print(f"warning, idx {idx} img not found: {img_path}")
+                # self.glob_list.pop(idx)
+                return None
+            image_list.append(image)
+        # draw overlay of preferred trajectory
+        if image is None:
+            print("Error! Image is None, returning...", img_path)
+            return None
+
+        if self.plot_imgs:
+            fig, ax = plt.subplots(len(image_list)+1, 1)
+            for i, img in enumerate(image_list):
+                ax[i].imshow(img)
+            plt.show(block=True)
+
+        sample = {
+            'image': np.array(image_list),
+        }
+
+        if self.transform:
+            sample = self.transform(sample)
+
+        return sample
 
 def main():
     with open('../config/setting.yaml', 'r') as f:
@@ -313,6 +452,12 @@ def main():
         "--image-root",
         type=Path,
         default=settings['image_root'],
+        help="Root directory containing extracted SCAND images (organized by bag name)",
+    )
+    parser.add_argument(
+        "--image-overlay-root",
+        type=Path,
+        default=settings['image_overlay_root'],
         help="Root directory containing extracted SCAND images (organized by bag name)",
     )
     parser.add_argument(
@@ -359,20 +504,27 @@ def main():
     )
     args = parser.parse_args()
 
-    my_dataset = ChopPreferenceDataset(preference_root=args.preference_root,
-                                       image_root=args.image_root,
+    # my_dataset = ChopTrajectoryDataset(preference_root=args.preference_root,
+    #                                    image_root=args.image_root,
+    #                                    img_extension=args.image_ext,
+    #                                    calib_file=args.calibration_file,
+    #                                    mode=args.mode,
+    #                                    verbose=args.verbose,
+    #                                    plot_imgs=args.plot_imgs,
+    #                                    num_points=args.num_points,
+    #                                    )
+    my_dataset = ChopImageDataset(preference_root=args.preference_root,
+                                  image_root=args.image_root,
+                                       image_overlay_root=args.image_overlay_root,
                                        img_extension=args.image_ext,
                                        calib_file=args.calibration_file,
                                        mode=args.mode,
                                        verbose=args.verbose,
                                        plot_imgs=args.plot_imgs,
                                        num_points=args.num_points,
-                                      )
+                                       )
     idx = 55
     sample = my_dataset.__getitem__(idx)
-    print(idx, "image shape:", sample['image'].shape,
-          "points shape:", sample['points'].shape,
-          )
 
 if __name__ == "__main__":
     main()
