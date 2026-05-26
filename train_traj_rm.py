@@ -16,7 +16,7 @@ import yaml
 import os
 
 from src.chop_dataloader import ChopPreferenceDataset
-from src.reward_model import RewardModel
+from src.reward_model import TrajectoryRewardModel
 from src.loss_fn import bradley_terry_loss
 
 
@@ -52,7 +52,7 @@ def main():
     project_name = config['project_name']
     entity_name = config['entity']
     lr = config['learning_rate']
-    exp_name = f"{project_name}_{timestamp}"
+    exp_name = f"{project_name}_traj_{timestamp}"
     checkpoint_dir = os.path.join(checkpoint_dir, exp_name)
     save_name = "run"
     if config['sweep']:
@@ -77,7 +77,7 @@ def main():
     print("model config:")
     print(json.dumps(config, indent=4))
     # Define Model, Loss, Optimizer
-    model = RewardModel(d_model=config["d_model"],
+    model = TrajectoryRewardModel(d_model=config["d_model"],
                         n_heads=config["num_heads"],
                         dropout=config["dropout"],
                         fusion_blocks=config["fusion_blocks"],
@@ -93,6 +93,7 @@ def main():
                                           calib_file=config['calibration_file'],
                                           img_extension=config['image_ext'],
                                           mode="train",
+                                          return_img=False,
                                           verbose=False,
                                           plot_imgs=config['plot_imgs'],
                                           dataset_len_limit=None,
@@ -102,15 +103,11 @@ def main():
                                         calib_file=config['calibration_file'],
                                         img_extension=config['image_ext'],
                                         mode="test",
+                                        return_img=False,
                                         verbose=False,
                                         plot_imgs=config['plot_imgs'],
                                         dataset_len_limit=None,
                                         )
-
-    # train_sampler = WeightedRandomSampler(weights=train_dataset.sample_weights, num_samples=len(train_dataset),
-    #                                       replacement=True)
-    # val_sampler = WeightedRandomSampler(weights=val_dataset.sample_weights, num_samples=len(val_dataset),
-    #                                     replacement=True)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, pin_memory=True, num_workers=config['num_workers'])
     val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=True, num_workers=3)

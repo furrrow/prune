@@ -4,15 +4,129 @@ reward model using the trajectory preferences
 """
 import torch
 import torch.nn as nn
-from transformers import AutoImageProcessor, AutoModel
+from transformers import AutoProcessor, AutoModel
 from models.trajectory_transformer import TrajectoryTransformer
 from models.fusion_block import FusionBlock
 
 """
-DINOv3 related transforms, etc
-see: https://github.com/facebookresearch/dinov3
+I-JEPA
+see: https://huggingface.co/docs/transformers/en/model_doc/ijepa#transformers.IJepaForImageClassification
 """
-class RewardModel(nn.Module):
+class ImageRewardModel(nn.Module):
+    def __init__(self,
+                 n_heads: int = 8,
+                 hidden_dim: int = 1024,
+                 dropout: float = 0.1,
+                 verbose: bool = True,
+                 image_feature_extractor_name: str = "jmtzt/ijepa_vitg16_22k",
+                 freeze_image_encoder: bool = True,
+                 image_feature_extractor: nn.Module | None = None,
+                 processor=None):
+        super().__init__()
+        self.image_feature_extractor_name = image_feature_extractor_name
+        self.freeze_image_encoder = freeze_image_encoder
+
+        # Load DINOv3
+        if verbose:
+            print("loading model", self.image_feature_extractor_name)
+        self.processor = processor
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(self.image_feature_extractor_name)
+        self.image_feature_extractor = image_feature_extractor
+        if self.image_feature_extractor is None:
+            self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
+        self.patch_size = self.image_feature_extractor.config.patch_size
+        self.image_dim = self.image_feature_extractor.config.hidden_size
+        if self.freeze_image_encoder:
+            # Important for DDP: frozen params must not require grad.
+            for p in self.image_feature_extractor.parameters():
+                p.requires_grad = False
+            self.image_feature_extractor.eval()
+        if verbose:
+            print(self.image_feature_extractor)
+            print("Patch size:", self.patch_size)  # 16
+            print("Image hidden dim:", self.image_dim) # 1408 for jepa
+        self.num_heads = n_heads
+        self.hidden_dim = hidden_dim
+        # Self-Attention Over Vision Features
+        self.multihead_attn1 = nn.MultiheadAttention(embed_dim=self.image_dim, num_heads=self.num_heads,
+                                                     batch_first=True, dropout=dropout)
+        self.multihead_attn2 = nn.MultiheadAttention(embed_dim=self.image_dim, num_heads=self.num_heads,
+                                                     batch_first=True, dropout=dropout)
+        self.multihead_attn3 = nn.MultiheadAttention(embed_dim=self.image_dim, num_heads=self.num_heads,
+                                                     batch_first=True, dropout=dropout)
+        self.attn_norm = nn.LayerNorm(self.image_dim)
+        self.image_proj = nn.Identity() if self.image_dim == self.hidden_dim else nn.Linear(self.image_dim, self.hidden_dim)
+        self.dropout = nn.Dropout(p=dropout)
+
+        # patch feature distillation
+        self.patch_conv1 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=5, stride=2)
+        self.patch_conv2 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=3, stride=2)
+        self.patch_conv3 = nn.Conv2d(self.hidden_dim, self.hidden_dim, kernel_size=2)
+
+        # Reward Prediction Head
+        self.reward_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, 512), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(512, 128), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(128, 1), )
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.freeze_image_encoder:
+            self.image_feature_extractor.eval()
+        return self
+
+    def forward(self, orig_input, annotated_input) -> torch.Tensor:
+        """
+        Args:
+            pts: (B, M, K, 2) tensor of point trajectories
+            B: batch
+            M: number of trajectories, 4?
+            K: number of points in each trajectory, 10
+            2: (x, y) of trajectory coordinates
+            image_inputs: dict-like input for DINOv3 (must include pixel_values)
+                (batch_size, 3, 224, 224)
+        Returns:
+            rewards: (B, M) tensor for 4D trajectory input, or (B*M,) tensor for already-flat 3D input
+        """
+        if self.freeze_image_encoder:
+            with torch.no_grad():
+                orig_output = self.image_feature_extractor(**orig_input)
+                annotated_output = self.image_feature_extractor(**annotated_input)
+        else:
+            orig_output = self.image_feature_extractor(**orig_input)
+            annotated_output = self.image_feature_extractor(**annotated_input)
+
+        orig_features = orig_output.last_hidden_state # [B, 196, 1408])
+        annotated_features = annotated_output.last_hidden_state # [B, 196, 1408])
+        batch, k_sq = annotated_features.shape[0:2]
+        k = torch.sqrt(torch.tensor(k_sq)).item()
+        # Self-Attention on Vision Features
+        attn_output, _ = self.multihead_attn1(annotated_features, annotated_features,
+                                              annotated_features)  # Shape: (batch_size, num_patches, hidden_dim)
+        attn_output = self.attn_norm(self.dropout(attn_output))  # Normalize After Self-Attention
+        residual1 = attn_output
+
+        attn_output, _ = self.multihead_attn2(attn_output, orig_features,
+                                              orig_features)
+        attn_output = self.attn_norm(residual1 + self.dropout(attn_output))
+        # residual2 = attn_output
+
+        # attn_output, _ = self.multihead_attn3(attn_output, attn_output,
+        #                                       attn_output)
+        # attn_output = self.attn_norm(residual2 + self.dropout(attn_output))
+        proj_output = self.image_proj(attn_output)
+        output_img = proj_output.reshape(batch, int(k), int(k), self.hidden_dim)
+        output_img = torch.movedim(output_img, 3, 1)
+        shrink_img = self.patch_conv1(output_img)
+        shrink_img = self.patch_conv2(shrink_img)
+        shrink_img = self.patch_conv3(shrink_img) # [Batch, 1024, 1, 1]
+        shrink_img = shrink_img.squeeze(-1).squeeze(-1)
+        rewards = self.reward_head(shrink_img).squeeze(-1)  # (batch_size)
+
+        return rewards
+
+class TrajectoryRewardModel(nn.Module):
     def __init__(self,
                  d_model: int = 384,
                  n_heads: int = 8,
@@ -20,7 +134,7 @@ class RewardModel(nn.Module):
                  fusion_blocks: int = 4,
                  num_blocks: int = 4,
                  verbose: bool = True,
-                 image_feature_extractor_name: str = "facebook/dinov3-vitb16-pretrain-lvd1689m",
+                 image_feature_extractor_name: str = "jmtzt/ijepa_vitg16_22k",
                  freeze_image_encoder: bool = True,
                  image_feature_extractor: nn.Module | None = None,
                  processor=None):
@@ -36,7 +150,7 @@ class RewardModel(nn.Module):
             print("loading model", self.image_feature_extractor_name)
         self.processor = processor
         if self.processor is None:
-            self.processor = AutoImageProcessor.from_pretrained(self.image_feature_extractor_name)
+            self.processor = AutoProcessor.from_pretrained(self.image_feature_extractor_name)
         self.image_feature_extractor = image_feature_extractor
         if self.image_feature_extractor is None:
             self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
@@ -51,9 +165,7 @@ class RewardModel(nn.Module):
             print(self.image_feature_extractor)
             print("Patch size:", self.patch_size)  # 16
             print("Image hidden dim:", self.image_dim)
-            print("Num register tokens:", self.image_feature_extractor.config.num_register_tokens)  # 4
         self.d_model = d_model
-        self.num_register_tokens = self.image_feature_extractor.config.num_register_tokens
 
         self.trajectory_transformer = TrajectoryTransformer(d_model=d_model,
                                                             num_blocks=num_blocks,
@@ -118,8 +230,8 @@ class RewardModel(nn.Module):
             img_output = self.image_feature_extractor(**image_inputs)
         # original_patch_features = orig_output.last_hidden_state[:, 0, :] # same as: img_output.pooler_output
 
-        img_tokens = img_output.last_hidden_state
-        img_tokens = img_tokens[:, 1 + self.num_register_tokens :, :] # [batch, 196, 768]
+        img_tokens = img_output.last_hidden_state # [batch, 196, 1408]
+        # img_tokens = img_tokens[:, 1 + self.num_register_tokens :, :] # [batch, 196, 768]
 
         image_batch_size, n_patches, embed = img_tokens.shape
         if image_batch_size != B:
