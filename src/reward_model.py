@@ -4,10 +4,9 @@ reward model using the trajectory preferences
 """
 import torch
 import torch.nn as nn
-from transformers import TorchAoConfig, AutoImageProcessor, AutoModel
+from transformers import AutoImageProcessor, AutoModel
 from models.trajectory_transformer import TrajectoryTransformer
 from models.fusion_block import FusionBlock
-from torchvision.transforms import v2
 
 """
 DINOv3 related transforms, etc
@@ -20,23 +19,34 @@ class RewardModel(nn.Module):
                  dropout: float = 0.1,
                  fusion_blocks: int = 4,
                  num_blocks: int = 4,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 image_feature_extractor_name: str = "facebook/dinov3-vitb16-pretrain-lvd1689m",
+                 freeze_image_encoder: bool = True,
+                 image_feature_extractor: nn.Module | None = None,
+                 processor=None):
         super().__init__()
         # self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
-        self.image_feature_extractor_name = "facebook/dinov3-vitb16-pretrain-lvd1689m"
+        self.image_feature_extractor_name = image_feature_extractor_name
+        self.freeze_image_encoder = freeze_image_encoder
         # self.model_name = "facebook/dinov3-vitl16-pretrain-lvd1689m"
         # self.model_name = "facebook/dinov3-vit7b16-pretrain-lvd1689m"
 
         # Load DINOv3
         if verbose:
             print("loading model", self.image_feature_extractor_name)
-        self.processor = AutoImageProcessor.from_pretrained(self.image_feature_extractor_name)
-        self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
+        self.processor = processor
+        if self.processor is None:
+            self.processor = AutoImageProcessor.from_pretrained(self.image_feature_extractor_name)
+        self.image_feature_extractor = image_feature_extractor
+        if self.image_feature_extractor is None:
+            self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
         self.patch_size = self.image_feature_extractor.config.patch_size
         self.image_dim = self.image_feature_extractor.config.hidden_size
-        # Important for DDP: frozen params must not require grad.
-        for p in self.image_feature_extractor.parameters():
-            p.requires_grad = False
+        if self.freeze_image_encoder:
+            # Important for DDP: frozen params must not require grad.
+            for p in self.image_feature_extractor.parameters():
+                p.requires_grad = False
+            self.image_feature_extractor.eval()
         if verbose:
             print(self.image_feature_extractor)
             print("Patch size:", self.patch_size)  # 16
@@ -65,6 +75,12 @@ class RewardModel(nn.Module):
             nn.Linear(d_model // 2, 1),
         )
 
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.freeze_image_encoder:
+            self.image_feature_extractor.eval()
+        return self
+
     def forward(self, pts: torch.Tensor, image_inputs, B=None, M=None) -> torch.Tensor:
         """
         Args:
@@ -76,31 +92,44 @@ class RewardModel(nn.Module):
             image_inputs: dict-like input for DINOv3 (must include pixel_values)
                 (batch_size, 3, 224, 224)
         Returns:
-            rewards: (BxM) tensor of scalar rewards for each trajectory
+            rewards: (B, M) tensor for 4D trajectory input, or (B*M,) tensor for already-flat 3D input
         """
+        return_flat = False
         if len(pts.shape) == 4:
             B, M, K, _ = pts.shape
             pts_flat = pts.reshape(B * M, K, 2).float()
         elif len(pts.shape) == 3: # assuming already flat, we need B and M from outside
             if (B is None) or (M is None):
-                Exception(f"batch or traj number needed in reward model forward function")
+                raise ValueError("batch size B and trajectory count M are required when pts is already flat")
             pts_flat = pts.float()
+            return_flat = True
         else:
-            Exception(f"reward mode pts shape {pts.shape} mismatch")
+            raise ValueError(f"reward model pts shape {pts.shape} mismatch; expected (B,M,K,2) or (B*M,K,2)")
+        if pts_flat.shape[0] != B * M:
+            raise ValueError(
+                f"flat trajectory count {pts_flat.shape[0]} does not match B*M ({B}*{M}={B * M})"
+            )
         x = self.trajectory_transformer(pts_flat)  # (B, K+1, D_model) with CLS at index 0]
 
-        with torch.no_grad():
+        if self.freeze_image_encoder:
+            with torch.no_grad():
+                img_output = self.image_feature_extractor(**image_inputs)
+        else:
             img_output = self.image_feature_extractor(**image_inputs)
         # original_patch_features = orig_output.last_hidden_state[:, 0, :] # same as: img_output.pooler_output
 
         img_tokens = img_output.last_hidden_state
         img_tokens = img_tokens[:, 1 + self.num_register_tokens :, :] # [batch, 196, 768]
 
-        B, n_patches, embed = img_tokens.shape
+        image_batch_size, n_patches, embed = img_tokens.shape
+        if image_batch_size != B:
+            raise ValueError(
+                f"image batch size {image_batch_size} does not match trajectory batch size {B}"
+            )
         assert (embed == self.d_model) , f"embedding size {embed} does not match d_model {self.d_model}"
 
-        img_tokens_exp  = img_tokens[:, None, :, :].expand(B, M, n_patches, embed)
-        img_tokens_flat = img_tokens_exp.reshape(B * M, n_patches, embed)
+        img_tokens_exp  = img_tokens[:, None, :, :].expand(image_batch_size, M, n_patches, embed)
+        img_tokens_flat = img_tokens_exp.reshape(image_batch_size * M, n_patches, embed)
 
         # Trajectory queries attend to image patch keys/values.
         for block in self.fusion:
@@ -109,4 +138,6 @@ class RewardModel(nn.Module):
         # CLS readout for reward prediction.
         cls_feat = x[:, 0, :]
         rewards = self.reward_head(cls_feat).squeeze(-1)
-        return rewards # [batch * M (number of trajectories)]
+        if return_flat:
+            return rewards # [batch * M (number of trajectories)]
+        return rewards.reshape(B, M)

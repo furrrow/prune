@@ -26,7 +26,7 @@ checkpoint_freq: 2
 dropout: 0.1
 reward_l2: 1e-3
 sweep: false
-use_wandb: true
+use_wandb: false
 warmup_epochs: 3
 use_scheduler: true
 disable_scheduler_during_sweep: true

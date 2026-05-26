@@ -297,8 +297,8 @@ def plot_trajectory(
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
     if show:
-        plt.show(block=False)
-        plt.pause(1)
+        plt.show(block=True)
+        plt.pause()
     else:
         plt.close(fig)
 
@@ -330,8 +330,11 @@ def load_model_from_checkpoint(model, optimizer, load_checkpoint_path, device):
 def main():
     config_file_path = "config/setting.yaml"
     # config_file_path = "config/config_point_based.yaml"
-    load_checkpoint_path = "./weights/model_150_epoch_34.pth"
+    # load_checkpoint_path = "./weights/model_150_epoch_34.pth"
     # load_checkpoint_path = "./weights/model_151_epoch_22.pth"
+    # load_checkpoint_path = "./weights/model_163_epoch_32.pth"
+    load_checkpoint_path = "./weights/model_165_epoch_34.pth"
+    # load_checkpoint_path = "/home/jim/Downloads/model165_26-05-24_23-12-36/model_epoch_12.pth"
     # load_checkpoint_path = "./weights/epoch_029.pt"
 
     with open(config_file_path, 'r') as f:
@@ -414,67 +417,54 @@ def main():
             model.eval()
 
     global_step = 0
-    start_time = time.time()
+    sample_idx = 1
     # Eval Loop
     dataloader = train_loader
     # dataloader = val_loader
-    for epoch in range(0, 1):  # Start from checkpointed epoch
-        train_loss = 0.0
-        batch_count = 0
+    for batch in tqdm(dataloader, desc="eval loop..."):
+        first_image = batch["image"].to(device)[0:1] # [Batch, 720, 1280, 3]
+        display_image = first_image[0]
+        break
+    for i in range(0, 2):
+        shuffle = i == 1
+        points = dummy_points.to(device) # [Batch, n_points, 10, 3]
+        if shuffle:
+            rand_indices = torch.randperm(len(dummy_points))
+            reverse_indices = torch.argsort(rand_indices)
+            dummy_points = dummy_points[rand_indices]
+        points = points[:, :, :, :2] # [Batch, n_points, 10, 2], only get x and y coords
+        B, n_points, k, d = points.shape
 
-        for batch in tqdm(dataloader, desc="eval loop..."):
-            image = batch["image"].to(device) # [Batch, 720, 1280, 3]
-            points = batch["points"].to(device) # [Batch, n_points, 10, 3]
-            points = points[:, :, :, :2] # [Batch, n_points, 10, 2], only get x and y coords
-            B, n_points, k, d = points.shape
+        robot_name = infer_robot_name(dataloader.dataset, sample_idx)
 
-            sample_idx = batch_count * batch_size
-            robot_name = infer_robot_name(dataloader.dataset, sample_idx)
+        image = display_image.unsqueeze(0).repeat(B, 1, 1, 1)
+        flat_points = points.reshape(-1, k, 2)
+        flat_points[:len(dummy_points)] = dummy_points[:, :, :2]
+        points = points.reshape(B, n_points, k, 2)
+        # optimizer.zero_grad()
+        # Forward pass
+        image = model.processor(image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
+        with torch.inference_mode():
+            reward_prediction = model(points, image) # [batch * n_points]
 
-            display_image = image[0]
-            image = display_image.unsqueeze(0).repeat(B, 1, 1, 1)
-            flat_points = points.reshape(-1, k, 2)
-            flat_points[:len(dummy_points)] = dummy_points[:, :, :2]
-            points = points.reshape(B, n_points, k, 2)
-            # optimizer.zero_grad()
-            # Forward pass
-            image = model.processor(image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
-            with torch.inference_mode():
-                reward_prediction = model(points, image) # [batch * n_points]
-
-            # shape reward back into pairwise setting
-            reshaped_rwd = reward_prediction.reshape((B, n_points))
-            display_points = points.reshape(-1, k, 2)
-            rand_indices = np.arange(len(dummy_points))
-            display_reward = reshaped_rwd.reshape(-1)[rand_indices]
-            print(f"best reward idx {torch.argmax(display_reward).item()} out of reward {display_reward}")
-            plot_trajectory(
-                display_image,
-                display_points[rand_indices],
-                display_reward,
-                K=dataloader.dataset.K,
-                dist=dataloader.dataset.dist,
-                T_cam_from_base=dataloader.dataset.T_cam_from_base[robot_name],
-                save_path=os.path.join(plot_dir, f"trajectory_{global_step:06d}.png"),
-                show=True,
-                title=f"trajectory visualization | step {global_step}",
-            )
-            batch_count += 1
-            global_step += 1
-
-            if batch_count % config['batch_print_freq'] == 0:
-                SPS = global_step / (time.time() - start_time)
-                if use_wandb:
-                    run.log({"charts/SPS": SPS, "epoch": epoch}, global_step)
-        avg_loss = train_loss / len(train_loader)
-        if use_wandb:
-            run.log({"charts/avg_loss": avg_loss, "epoch": epoch}, global_step)
-
-        # Print Epoch Results
-        print(f"! End of epoch ({epoch + 1}/{n_epochs}) | Avg Loss: {avg_loss:.4f}")
-        print({"charts/avg_loss": avg_loss, "charts/learning_rate": optimizer.param_groups[0]['lr']})
-        # scheduler.step()  # Adjust learning rate
-        # scheduler.step(avg_val_loss)  # Adjust learning rate
+        # shape reward back into pairwise setting
+        reshaped_rwd = reward_prediction.reshape((B, n_points))
+        display_points = points.reshape(-1, k, 2)
+        rand_indices = np.arange(len(dummy_points))
+        display_reward = reshaped_rwd.reshape(-1)[rand_indices]
+        print(f"best reward idx {torch.argmax(display_reward).item()} out of reward {display_reward}")
+        plot_trajectory(
+            display_image,
+            display_points[rand_indices],
+            display_reward,
+            K=dataloader.dataset.K,
+            dist=dataloader.dataset.dist,
+            T_cam_from_base=dataloader.dataset.T_cam_from_base[robot_name],
+            save_path=os.path.join(plot_dir, f"trajectory_{global_step:06d}.png"),
+            show=True,
+            title=f"trajectory visualization | step {global_step}",
+        )
+        global_step += 1
 
     print("Eval Complete!")
     if use_wandb:
