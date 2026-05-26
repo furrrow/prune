@@ -21,7 +21,7 @@ import yaml
 import os
 
 from src.chop_dataloader import ChopTrajectoryDataset
-from src.reward_model import RewardModel
+from src.reward_model import TrajectoryRewardModel
 from src.loss_fn import bradley_terry_loss
 from utils.vis_utils import clean_2d, project_clip
 
@@ -300,6 +300,10 @@ def main():
     # config_file_path = "config/config_point_based.yaml"
     load_checkpoint_path = "./weights/model_150_epoch_34.pth"
     # load_checkpoint_path = "./weights/model_151_epoch_22.pth"
+    # load_checkpoint_path = "./weights/model_163_epoch_32.pth"
+    # load_checkpoint_path = "./weights/model_165_epoch_34.pth"
+    load_checkpoint_path = "./weights/model_173_epoch_10.pth"
+    # load_checkpoint_path = "/home/jim/Downloads/model165_26-05-24_23-12-36/model_epoch_12.pth"
     # load_checkpoint_path = "./weights/epoch_029.pt"
 
     with open(config_file_path, 'r') as f:
@@ -325,23 +329,17 @@ def main():
     exp_name = f"{project_name}_{timestamp}"
     checkpoint_dir = os.path.join(checkpoint_dir, exp_name)
     save_name = "run"
-    if config['sweep']:
-        use_wandb = True
 
     if use_wandb:
         run = wandb.init(entity=entity_name, project=project_name, dir=checkpoint_dir,
                          config=config)
         config['wandb_run_name'] = run.name
         save_name = run.name
-        # update hyperparams from the wandb sweep if there is one:
-        if config['sweep']:
-            lr = run.config["lr"]
-            use_cls = run.config['use_cls']
 
     print("model config:")
     print(json.dumps(config, indent=4))
     # Define Model, Loss, Optimizer
-    model = RewardModel(d_model=config["d_model"],
+    model = TrajectoryRewardModel(d_model=config["d_model"],
                         n_heads=config["num_heads"],
                         dropout=config["dropout"],
                         fusion_blocks=config["fusion_blocks"],
@@ -376,10 +374,6 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=True, num_workers=3)
 
     os.makedirs(checkpoint_dir, exist_ok=True)
-    arch_path = f"{checkpoint_dir}/{save_name}_model_architecture.txt"
-
-    with open(arch_path, "w") as f:
-        f.write(str(model))
 
     if checkpoint_dir is not None:
         print(f"checkpoint_dir: {checkpoint_dir}")

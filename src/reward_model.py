@@ -139,7 +139,8 @@ class TrajectoryRewardModel(nn.Module):
                  verbose: bool = True,
                  image_feature_extractor_name: str = "jmtzt/ijepa_vitg16_22k",
                  freeze_image_encoder: bool = True,
-                 image_feature_extractor: nn.Module | None = None):
+                 image_feature_extractor: nn.Module | None = None,
+                 processor=None):
         super().__init__()
         # self.model_name = "facebook/dinov3-vits16-pretrain-lvd1689m"
         self.image_feature_extractor_name = image_feature_extractor_name
@@ -150,6 +151,9 @@ class TrajectoryRewardModel(nn.Module):
         # Load DINOv3
         if verbose:
             print("loading model", self.image_feature_extractor_name)
+        self.processor = processor
+        if self.processor is None:
+            self.processor = AutoProcessor.from_pretrained(self.image_feature_extractor_name)
         self.image_feature_extractor = image_feature_extractor
         if self.image_feature_extractor is None:
             self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)

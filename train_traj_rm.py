@@ -32,7 +32,6 @@ def main():
     with open('config/setting.yaml', 'r') as f:
         config = yaml.load(f, Loader=yaml.SafeLoader)
 
-    # checkpoint_dir = "/fs/nexus-scratch/jianyu34/Projects/HALO/checkpoints/"
     checkpoint_dir = config['checkpoint_dir']
     load_checkpoint_path = config['load_checkpoint_path']
     device = "cuda" if (torch.cuda.is_available() and config['device'] == "cuda") else "cpu"
