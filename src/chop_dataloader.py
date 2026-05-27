@@ -6,9 +6,7 @@ import os
 import torch
 import json
 
-from cv2 import Mat
-from numpy import dtype, floating, integer, ndarray
-from skimage import io, transform
+import torchvision.io
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
@@ -145,8 +143,9 @@ class ChopPreferenceDataset(Dataset):
                 json.dump(self.verified_pairs, f, indent=4)
 
     def horizontal_flip_image(self, image):
-        image = cv2.flip(image, 1)
-        return image
+        if torch.is_tensor(image):
+            return torch.flip(image, dims=(-1,))
+        return cv2.flip(image, 1)
 
     def horizontal_flip_path(self, trajectory):
         trajectory = np.array(trajectory).copy()
@@ -217,12 +216,22 @@ class ChopPreferenceDataset(Dataset):
             robot_name="spot"
         else:
             raise ValueError('Error, robot type unclear.')
-
+        # find another 'negative example' image
+        img_folder, img_name = os.path.split(img_path)
+        negative_img_path = img_path
+        img_file_generator = Path(img_folder).glob(f"*.{self.img_extension}")
+        while negative_img_path == img_path:
+            negative_img_path = next(img_file_generator, None)
         if os.path.exists(img_path):
             image = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
         else:
             print(f"warning, idx {idx} img not found: {img_path}")
             # self.glob_list.pop(idx)
+            return None
+        if os.path.exists(negative_img_path):
+            negative_image = cv2.imread(negative_img_path, cv2.IMREAD_COLOR_RGB)
+        else:
+            print(f"warning, idx {idx} img not found: {img_path}")
             return None
         # draw overlay of preferred trajectory
         if image is None:
@@ -232,25 +241,31 @@ class ChopPreferenceDataset(Dataset):
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
         if flip:
             image = self.horizontal_flip_image(image)
+            negative_image = self.horizontal_flip_image(negative_image)
             points_list = self.horizontal_flip_path(points_list)
         if self.plot_imgs:
             stop_pref = pref_dict['stop']
             color_key = "GREEN"
-            fig, ax = plt.subplots(2, 1)
             pref_path = pref_dict['paths'][str(ranking_list[0])]
             rej_path = pref_dict['paths'][str(ranking_list[1])]
-            if flip:
+            if flip and not stop_pref:
                 for key in ['points', 'left_boundary', 'right_boundary']:
                     pref_path[key] = self.horizontal_flip_path(pref_path[key])
                     rej_path[key] = self.horizontal_flip_path(rej_path[key])
-            pref_img = self.overlay_trajectory(image, pref_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
-            rej_img = self.overlay_trajectory(image, rej_path, color=color_dict[color_key], robot_name=robot_name, bypass=stop_pref)
+            pref_img = self.overlay_trajectory(image, pref_path, color=color_dict[color_key], robot_name=robot_name,
+                                               bypass=stop_pref)
+            rej_img = self.overlay_trajectory(image, rej_path, color=color_dict[color_key], robot_name=robot_name,
+                                              bypass=stop_pref)
+
+        if self.plot_imgs:
+            fig, ax = plt.subplots(2, 1)
             ax[0].imshow(pref_img)
             ax[1].imshow(rej_img)
             plt.show(block=True)
 
         sample = {
             'image': image,
+            'negative_image': negative_image,
             'points': np.array(points_list),
         }
 

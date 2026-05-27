@@ -44,6 +44,7 @@ def main():
     use_wandb = config['use_wandb']
     verbose = config['verbose']
     lambda_reward = float(config.get("reward_l2", 1e-3))
+    negative_factor = float(config.get("negative_factor", 0.1))
     # Get the current time
     now = datetime.datetime.now()
 
@@ -180,6 +181,7 @@ def main():
         hard_pair_tally = 0
         for batch in tqdm(train_loader, desc="training loop..."):
             image = batch["image"].to(device, non_blocking=True) # [Batch, 3, H, W], already resized/rescaled
+            neg_image = batch["negative_image"].to(device, non_blocking=True) # [Batch, 3, H, W], already resized/rescaled
             points = batch["points"].to(device) # [Batch, n_points, 10, 3]
             points = points[:, :, :, :2] # [Batch, n_points, 10, 2], only get x and y coords
             B, n_points, k, d = points.shape
@@ -191,8 +193,11 @@ def main():
             flat_pts = flat_pts[rand_perm]
             # Forward pass
             image = model.processor(image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
+            neg_image = model.processor(neg_image, return_tensors="pt") # pixel_values: # [B, 3, 224, 224]
             reward_prediction = model(flat_pts, image, B=B, M=n_points) # [batch * n_points]
+            neg_reward_prediction = model(flat_pts, neg_image, B=B, M=n_points) # [batch * n_points]
             reward_prediction = reward_prediction[inv_perm]
+            neg_reward_prediction = neg_reward_prediction[inv_perm]
 
             # shape reward back into pairwise setting
             reshaped_rwd = reward_prediction.reshape((B, n_points))
@@ -200,26 +205,35 @@ def main():
             rank1 = reshaped_rwd[:, 1]
             rank2 = reshaped_rwd[:, 2]
             rank3 = reshaped_rwd[:, 3]
+            neg_reshaped_rwd = neg_reward_prediction.reshape((B, n_points))
+            n_rank0 = neg_reshaped_rwd[:, 0]
+            n_rank1 = neg_reshaped_rwd[:, 1]
+            n_rank2 = neg_reshaped_rwd[:, 2]
+            n_rank3 = neg_reshaped_rwd[:, 3]
             coin = torch.randint(0, 2, (1,)).item()
             if coin == 0:
                 preferred_reward = torch.concat((rank0, rank1))
                 rejected_reward = torch.concat((rank2, rank3))
+                negative_reward = torch.concat((n_rank0, n_rank1))
             else:
                 preferred_reward = torch.concat((rank0, rank2))
                 rejected_reward = torch.concat((rank1, rank3))
+                negative_reward = torch.concat((n_rank0, n_rank2))
             # as we get later in the epochs we should use rank2 vs rank3 more often as this comparison should be harder
             hard_pair_prob = scheduled_probability(epoch, n_epochs)
             use_hard_pair = torch.rand(1).item() < hard_pair_prob
             if use_hard_pair:
                 preferred_reward = rank2
                 rejected_reward = rank3
+                negative_reward = n_rank2
                 hard_pair_tally += 1
             # Compute Loss
             # loss = criterion(preferred_reward, rejected_reward)
 
-            bt_loss = criterion(preferred_reward, rejected_reward)
-            reward_l2 = torch.mean(reshaped_rwd ** 2)
-            loss = bt_loss + lambda_reward * reward_l2
+            bt_loss = criterion(preferred_reward, rejected_reward) # minimize this
+            difference_gain = torch.mean((preferred_reward - negative_reward) ** 2) # maximize this
+            reward_l2 = torch.mean(reshaped_rwd ** 2) # minimize this
+            loss = bt_loss + lambda_reward * reward_l2 - negative_factor * difference_gain
             # Backpropagation
             loss.backward()
             optimizer.step()
@@ -227,7 +241,9 @@ def main():
                 print(f"global_step {global_step} batch_count {batch_count} charts/train_loss {loss.item():.4f}")
             train_loss += loss.item()
             if use_wandb:
-                run.log({"charts/train_loss": loss.item(), "charts/learning_rate": optimizer.param_groups[0]['lr'],
+                run.log({"charts/train_loss": loss.item(), "charts/bt_loss": bt_loss.item(),
+                         "charts/difference_gain": difference_gain.item(), "charts/reward_l2": reward_l2.item(),
+                         "charts/learning_rate": optimizer.param_groups[0]['lr'],
                          "charts/scheduler_lr": scheduler.get_last_lr()[0]}
                     , global_step)
             batch_count += 1
@@ -267,6 +283,7 @@ def main():
                 # Compute Loss
                 # loss = criterion(preferred_reward, rejected_reward)
                 bt_loss = criterion(preferred_reward, rejected_reward)
+                # difference_gain = torch.mean((preferred_reward - negative_reward) ** 2)
                 reward_l2 = torch.mean(reshaped_rwd ** 2)
                 loss = bt_loss + lambda_reward * reward_l2
                 val_loss += loss.item()

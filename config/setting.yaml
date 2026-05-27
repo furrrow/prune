@@ -19,12 +19,13 @@ batch_size: 256  # 256 = 19GB VRAM, 320 = 21GB, 704 = 45GB
 epochs: 50
 d_model: 768
 num_queries: 1
-num_workers: 2  # if local, recommend no more than 3 @ batch_size 512
-prefetch_factor: 8
+num_workers: 6  # if local, recommend no more than 3 @ batch_size 512
+prefetch_factor: 1
 batch_print_freq: 1
 checkpoint_freq: 2
 dropout: 0.1
-reward_l2: 1e-3
+reward_l2: 5e-4
+negative_factor: 0.1
 sweep: false
 use_wandb: false
 warmup_epochs: 3
