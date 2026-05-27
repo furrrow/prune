@@ -15,7 +15,7 @@ device: "cuda"
 project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
 learning_rate: 2e-4
-batch_size: 256  # 256 = 19GB VRAM, 320 = 21GB, 704 = 45GB
+batch_size: 16  # 128 = 18GB, 256 = 29GB, 416 = 47GB
 epochs: 50
 d_model: 768
 num_queries: 1
@@ -24,8 +24,8 @@ prefetch_factor: 1
 batch_print_freq: 1
 checkpoint_freq: 2
 dropout: 0.1
-reward_l2: 5e-4
-negative_factor: 0.1
+reward_l2: 1e-3
+negative_factor: 1e-2
 sweep: false
 use_wandb: false
 warmup_epochs: 3

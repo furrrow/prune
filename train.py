@@ -44,7 +44,7 @@ def main():
     use_wandb = config['use_wandb']
     verbose = config['verbose']
     lambda_reward = float(config.get("reward_l2", 1e-3))
-    negative_factor = float(config.get("negative_factor", 0.1))
+    negative_factor = float(config.get("negative_factor", 1e-3))
     # Get the current time
     now = datetime.datetime.now()
 
@@ -113,8 +113,9 @@ def main():
     # val_sampler = WeightedRandomSampler(weights=val_dataset.sample_weights, num_samples=len(val_dataset),
     #                                     replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, pin_memory=True, num_workers=config['num_workers'])
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=True, num_workers=3)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, pin_memory=True, shuffle=True,
+                              num_workers=config['num_workers'])
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=True, num_workers=2)
 
     use_scheduler = bool(config.get("use_scheduler", True))
     if config["sweep"] and config.get("disable_scheduler_during_sweep", True):
@@ -231,8 +232,8 @@ def main():
             # loss = criterion(preferred_reward, rejected_reward)
 
             bt_loss = criterion(preferred_reward, rejected_reward) # minimize this
-            difference_gain = torch.mean((preferred_reward - negative_reward) ** 2) # maximize this
-            reward_l2 = torch.mean(reshaped_rwd ** 2) # minimize this
+            difference_gain = torch.mean(torch.abs(preferred_reward - negative_reward)) # maximize this
+            reward_l2 = torch.mean(torch.abs(reshaped_rwd)) # minimize this
             loss = bt_loss + lambda_reward * reward_l2 - negative_factor * difference_gain
             # Backpropagation
             loss.backward()
@@ -248,6 +249,7 @@ def main():
                     , global_step)
             batch_count += 1
             global_step += 1
+            break
 
             if batch_count % config['batch_print_freq'] == 0:
                 SPS = global_step / (time.time() - start_time)
@@ -262,7 +264,7 @@ def main():
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for batch in tqdm(val_loader, desc="validation loop..."):
+            for i_val, batch in enumerate(tqdm(val_loader, desc="validation loop...")):
                 image = batch["image"].to(device, non_blocking=True)
                 points = batch["points"].to(device)
                 points = points[:, :, :, :2]  # only get x and y coords
@@ -287,6 +289,8 @@ def main():
                 reward_l2 = torch.mean(reshaped_rwd ** 2)
                 loss = bt_loss + lambda_reward * reward_l2
                 val_loss += loss.item()
+                if i_val > len(val_loader) // 3:
+                    break
                 if verbose:
                     print(f"global_step {global_step} batch_count {batch_count} val_loss {loss.item():.4f}")
 

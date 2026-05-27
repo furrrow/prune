@@ -157,6 +157,9 @@ class ChopPreferenceDataset(Dataset):
             raise RuntimeError(f"Error, horizontal_flip_path trajectory shape {trajectory.shape}")
         return trajectory
 
+    def get_img_num(self, img_name):
+        return int(img_name[-len(img_name)+4:-4])
+
     def __len__(self):
         if self.dataset_len_limit is None:
             return len(self.verified_pairs)
@@ -218,10 +221,13 @@ class ChopPreferenceDataset(Dataset):
             raise ValueError('Error, robot type unclear.')
         # find another 'negative example' image
         img_folder, img_name = os.path.split(img_path)
-        negative_img_path = img_path
-        img_file_generator = Path(img_folder).glob(f"*.{self.img_extension}")
-        while negative_img_path == img_path:
-            negative_img_path = next(img_file_generator, None)
+        img_file_list = list(Path(img_folder).glob(f"*.{self.img_extension}"))
+        negative_img_path = img_file_list[np.random.randint(0, len(img_file_list))]
+        _, neg_img_name = os.path.split(negative_img_path)
+        proper_gap = self.get_img_num(os.path.split(img_file_list[-1])[-1]) - self.get_img_num(os.path.split(img_file_list[0])[-1])
+        while abs(self.get_img_num(neg_img_name) - self.get_img_num(img_name)) < abs(proper_gap)//2:
+            negative_img_path = img_file_list[np.random.randint(0, len(img_file_list))]
+            _, neg_img_name = os.path.split(negative_img_path)
         if os.path.exists(img_path):
             image = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
         else:
