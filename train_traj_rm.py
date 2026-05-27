@@ -15,7 +15,7 @@ from tqdm import tqdm
 import yaml
 import os
 
-from src.chop_dataloader import ChopTrajectoryDataset
+from src.chop_dataloader import ChopPreferenceDataset
 from src.reward_model import TrajectoryRewardModel
 from src.loss_fn import bradley_terry_loss
 
@@ -87,7 +87,7 @@ def main():
     if use_wandb:
         wandb.watch(model, log_freq=config['gradient_log_freq'])
 
-    train_dataset = ChopTrajectoryDataset(preference_root=config['preference_root'],
+    train_dataset = ChopPreferenceDataset(preference_root=config['preference_root'],
                                           image_root=config['image_root'],
                                           calib_file=config['calibration_file'],
                                           img_extension=config['image_ext'],
@@ -97,7 +97,7 @@ def main():
                                           plot_imgs=config['plot_imgs'],
                                           dataset_len_limit=None,
                                           )
-    val_dataset = ChopTrajectoryDataset(preference_root=config['preference_root'],
+    val_dataset = ChopPreferenceDataset(preference_root=config['preference_root'],
                                         image_root=config['image_root'],
                                         calib_file=config['calibration_file'],
                                         img_extension=config['image_ext'],

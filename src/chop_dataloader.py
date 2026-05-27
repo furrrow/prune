@@ -10,6 +10,7 @@ import torchvision.io
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
+import torchvision
 from torchvision import transforms, utils
 import argparse
 from pathlib import Path
@@ -74,12 +75,12 @@ def _extract_path(data: Dict[str, Any], num_points: int) -> Dict[str, Any]:
     }
 
 
-class ChopTrajectoryDataset(Dataset):
+class ChopPreferenceDataset(Dataset):
     """CHOP preference dataset"""
 
     def __init__(self, preference_root, image_root, img_extension, calib_file,
-                 mode, verbose, plot_imgs, num_points=8, re_index=False, dataset_len_limit=None,
-                 pick_mode="all", transform=None):
+                 mode, return_img, verbose, plot_imgs, num_points=8, re_index=False, dataset_len_limit=None,
+                 transform=None):
         """
         Arguments:
             preference_root (string): Path to the preference dataset.
@@ -90,20 +91,18 @@ class ChopTrajectoryDataset(Dataset):
             num_points (int): number of points per trajectory to resample to
             transform (callable, optional): Optional transform to be applied
                 on a sample.
-            pick_mode:
-                two: randomly pick two where first trajectory is ranked higher than the next
-                all: return all four
         """
         self.preference_root = preference_root
         self.image_root = image_root
         self.img_extension = img_extension
         self.calib_file = calib_file
         self.mode = mode
+        self.return_img = return_img
         self.verbose = verbose
         self.plot_imgs = plot_imgs
         self.dataset_len_limit = dataset_len_limit
-        self.pick_mode = pick_mode
         self.transform = transform
+        self.last_path = None
         if not os.path.exists(self.preference_root):
             print(f"ERROR, preference root not found in {self.preference_root}")
             exit()
@@ -143,6 +142,9 @@ class ChopTrajectoryDataset(Dataset):
                 json.dump(self.verified_pairs, f, indent=4)
 
     def horizontal_flip_image(self, image):
+        if torch.is_tensor(image):
+            return torch.flip(image, dims=(-1,))
+        return cv2.flip(image, 1)
         if torch.is_tensor(image):
             return torch.flip(image, dims=(-1,))
         return cv2.flip(image, 1)
@@ -195,20 +197,17 @@ class ChopTrajectoryDataset(Dataset):
         points_list = []
         left_boundaries = []
         right_boundaries = []
-        pref_img, rej_img = None, None
-        # pick two random rankings where the first one is better ranked than the next,
-        if self.pick_mode == "two":
-            first_trajectory = np.random.randint(0, 3)
-            second_trajectory = first_trajectory + 1
-            ranking_list = [ranking_list[first_trajectory], ranking_list[second_trajectory]]
-        elif self.pick_mode == "all":
-            ranking_list = ranking_list
 
         for rank in ranking_list:
             path_data = _extract_path(pref_dict['paths'][str(rank)], num_points=self.num_points)
-            points_list.append(path_data['points'])
-            left_boundaries.append(path_data['left_boundary'])
-            right_boundaries.append(path_data['right_boundary'])
+            if flip:
+                points_list.append(self.horizontal_flip_path(path_data['points']))
+                left_boundaries.append(self.horizontal_flip_path(path_data['left_boundary']))
+                right_boundaries.append(self.horizontal_flip_path(path_data['right_boundary']))
+            else:
+                points_list.append(path_data['points'])
+                left_boundaries.append(path_data['left_boundary'])
+                right_boundaries.append(path_data['right_boundary'])
         # images
         stem, json_file = os.path.split(json_path)
         stem, bag_name = os.path.split(stem)
@@ -220,7 +219,7 @@ class ChopTrajectoryDataset(Dataset):
             raise ValueError('Error, robot type unclear.')
 
         if os.path.exists(img_path):
-            image = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
+            image = torchvision.io.read_image(img_path)
         else:
             print(f"warning, idx {idx} img not found: {img_path}")
             # self.glob_list.pop(idx)
@@ -233,30 +232,41 @@ class ChopTrajectoryDataset(Dataset):
             print("ranking", ranking_list, "points len:", len(pref_dict['paths'][str(ranking_list[0])]['points']))
         if flip:
             image = self.horizontal_flip_image(image)
-            points_list = self.horizontal_flip_path(points_list)
-        if self.plot_imgs:
+        full_image_list = [image]
+        if self.return_img or self.plot_imgs:
             stop_pref = pref_dict['stop']
             color_key = "GREEN"
-            pref_path = pref_dict['paths'][str(ranking_list[0])]
-            rej_path = pref_dict['paths'][str(ranking_list[1])]
-            if flip and not stop_pref:
-                for key in ['points', 'left_boundary', 'right_boundary']:
-                    pref_path[key] = self.horizontal_flip_path(pref_path[key])
-                    rej_path[key] = self.horizontal_flip_path(rej_path[key])
-            pref_img = self.overlay_trajectory(image, pref_path, color=color_dict[color_key], robot_name=robot_name,
-                                               bypass=stop_pref)
-            rej_img = self.overlay_trajectory(image, rej_path, color=color_dict[color_key], robot_name=robot_name,
-                                              bypass=stop_pref)
-
-        if self.plot_imgs:
-            fig, ax = plt.subplots(2, 1)
-            ax[0].imshow(pref_img)
-            ax[1].imshow(rej_img)
-            plt.show(block=True)
-        sample = {
-            'image': image,
-            'points': np.array(points_list),
-        }
+            for rank in range(4):
+                if stop_pref:
+                    skip = True if rank < 3 else False # return bare img if rank=0 1 or 2.
+                    if self.last_path is not None:
+                        i_path = self.last_path.copy()  # just use the last path
+                    else:
+                        Exception("Catch Error in chop_image_processing")
+                else:
+                    i_path = pref_dict['paths'][str(ranking_list[rank])]
+                    self.last_path = i_path
+                    skip = False
+                overlay_img = self.overlay_trajectory(image, i_path, color=color_dict[color_key], robot_name=robot_name, 
+                                                      bypass=skip)
+                full_image_list.append(overlay_img)
+            if self.plot_imgs:
+                fig, ax = plt.subplots(1, 1)
+                ax.imshow(overlay_img)
+                plt.show(block=True)
+        
+        if self.return_img:
+            sample = {
+                'image': np.array(full_image_list),
+                # 'points': np.array(points_list),
+                # 'left_boundaries': np.array(left_boundaries),
+                # 'right_boundaries': np.array(right_boundaries),
+            }
+        else:
+            sample = {
+                'image': image,
+                'points': np.array(points_list),
+            }
 
         if self.transform:
             sample = self.transform(sample)
