@@ -223,8 +223,8 @@ def plot_trajectory(
     if save_path is not None:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
     if show:
-        plt.show(block=True)
-        plt.pause(interval=1)
+        plt.show(block=False)
+        plt.pause(interval=0.5)
     else:
         plt.close(fig)
 
@@ -260,7 +260,8 @@ def main():
     # load_checkpoint_path = "./weights/model_151_epoch_22.pth"
     # load_checkpoint_path = "./weights/model_163_epoch_32.pth"
     # load_checkpoint_path = "./weights/model_165_epoch_34.pth"
-    load_checkpoint_path = "./weights/model_173_epoch_10.pth"
+    # load_checkpoint_path = "./weights/model_173_epoch_10.pth"
+    load_checkpoint_path = "./weights/model_187_epoch_24.pth"
     # load_checkpoint_path = "/home/jim/Downloads/model165_26-05-24_23-12-36/model_epoch_12.pth"
     # load_checkpoint_path = "./weights/epoch_029.pt"
     dummy_points = torch.tensor(
@@ -424,9 +425,7 @@ def main():
     for batch in tqdm(dataloader, desc="eval loop..."):
         first_image = batch["image"].to(device)[0:1] # [Batch, 720, 1280, 3]
         display_image = first_image[0]
-        break
-    for i in range(0, 10):
-        shuffle = i == 1
+        shuffle = (sample_idx %2 == 1)
         points = dummy_points.unsqueeze(0).to(device) # [Batch, n_points, 10, 3]
         if shuffle:
             rand_indices = torch.randperm(len(dummy_points))

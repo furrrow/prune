@@ -6,9 +6,7 @@ import os
 import torch
 import json
 
-from cv2 import Mat
-from numpy import dtype, floating, integer, ndarray
-from skimage import io, transform
+import torchvision.io
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
@@ -145,8 +143,9 @@ class ChopTrajectoryDataset(Dataset):
                 json.dump(self.verified_pairs, f, indent=4)
 
     def horizontal_flip_image(self, image):
-        image = cv2.flip(image, 1)
-        return image
+        if torch.is_tensor(image):
+            return torch.flip(image, dims=(-1,))
+        return cv2.flip(image, 1)
 
     def horizontal_flip_path(self, trajectory):
         trajectory = np.array(trajectory).copy()
@@ -284,6 +283,7 @@ class ChopTrajectoryDataset(Dataset):
         poly_2d = make_corridor_polygon_from_cam_lines(left_2d, right_2d)
         draw_corridor(img, poly_2d, left_2d, right_2d, fill_alpha=0.5, fill_color=color, edge_thickness=2)
         return img
+
 class ChopImageDataset(Dataset):
     """CHOP preference dataset"""
 
@@ -355,18 +355,9 @@ class ChopImageDataset(Dataset):
                 json.dump(self.verified_pairs, f, indent=4)
 
     def horizontal_flip_image(self, image):
-        image = cv2.flip(image, 1)
-        return image
-
-    def horizontal_flip_path(self, trajectory):
-        trajectory = np.array(trajectory).copy()
-        if len(trajectory.shape) == 2:
-            trajectory[:, 1] *= -1
-        elif len(trajectory.shape) == 3:
-            trajectory[:, :, 1] *= -1
-        else:
-            raise RuntimeError(f"Error, horizontal_flip_path trajectory shape {trajectory.shape}")
-        return trajectory
+        if torch.is_tensor(image):
+            return torch.flip(image, dims=(-1,))
+        return cv2.flip(image, 1)
 
     def __len__(self):
         if self.dataset_len_limit is None:
@@ -407,7 +398,7 @@ class ChopImageDataset(Dataset):
         image_list = []
         for img_path in image_path_list:
             if os.path.exists(img_path):
-                image = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
+                image = torchvision.io.read_image(img_path)
                 if flip:
                     image = self.horizontal_flip_image(image)
             else:
@@ -427,9 +418,8 @@ class ChopImageDataset(Dataset):
             plt.show(block=True)
 
         sample = {
-            'image': np.array(image_list),
+            'image': torch.stack(image_list),
         }
-
         if self.transform:
             sample = self.transform(sample)
 

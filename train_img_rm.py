@@ -80,7 +80,8 @@ def main():
     model = ImageRewardModel(hidden_dim=config['hidden_dim'],
                              n_heads=config["num_heads"],
                              dropout=config["dropout"],
-                             verbose=config['verbose']).to(device)
+                             verbose=config['verbose'],
+                             quantize=True).to(device)
     criterion = bradley_terry_loss
     optimizer = optim.AdamW(model.parameters(), lr=float(lr), weight_decay=float(config["weight_decay"]))
     if use_wandb:
@@ -89,23 +90,23 @@ def main():
     train_dataset = ChopImageDataset(preference_root=config['preference_root'],
                                      image_root=config['image_root'],
                                      image_overlay_root=config['image_overlay_root'],
-                                          calib_file=config['calibration_file'],
-                                          img_extension=config['image_ext'],
-                                          mode="train",
-                                          verbose=False,
-                                          plot_imgs=config['plot_imgs'],
-                                          dataset_len_limit=None,
-                                          )
+                                      calib_file=config['calibration_file'],
+                                      img_extension=config['image_ext'],
+                                      mode="train",
+                                      verbose=False,
+                                      plot_imgs=config['plot_imgs'],
+                                      dataset_len_limit=None,
+                                      )
     val_dataset = ChopImageDataset(preference_root=config['preference_root'],
                                    image_root=config['image_root'],
                                    image_overlay_root=config['image_overlay_root'],
-                                        calib_file=config['calibration_file'],
-                                        img_extension=config['image_ext'],
-                                        mode="test",
-                                        verbose=False,
-                                        plot_imgs=config['plot_imgs'],
-                                        dataset_len_limit=None,
-                                        )
+                                    calib_file=config['calibration_file'],
+                                    img_extension=config['image_ext'],
+                                    mode="test",
+                                    verbose=False,
+                                    plot_imgs=config['plot_imgs'],
+                                    dataset_len_limit=None,
+                                    )
 
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, pin_memory=True, num_workers=config['num_workers'],

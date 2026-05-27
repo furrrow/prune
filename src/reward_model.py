@@ -4,7 +4,7 @@ reward model using the trajectory preferences
 """
 import torch
 import torch.nn as nn
-from transformers import AutoProcessor, AutoModel
+from transformers import AutoProcessor, AutoModel, BitsAndBytesConfig
 from models.trajectory_transformer import TrajectoryTransformer
 from models.fusion_block import FusionBlock
 
@@ -18,10 +18,11 @@ class ImageRewardModel(nn.Module):
                  hidden_dim: int = 1024,
                  dropout: float = 0.1,
                  verbose: bool = True,
-                 image_feature_extractor_name: str = "jmtzt/ijepa_vitg16_22k",
+                 image_feature_extractor_name: str = "facebook/ijepa_vitg16_22k",
                  freeze_image_encoder: bool = True,
                  image_feature_extractor: nn.Module | None = None,
-                 processor=None):
+                 processor=None,
+                 quantize=True):
         super().__init__()
         self.image_feature_extractor_name = image_feature_extractor_name
         self.freeze_image_encoder = freeze_image_encoder
@@ -32,9 +33,21 @@ class ImageRewardModel(nn.Module):
         self.processor = processor
         if self.processor is None:
             self.processor = AutoProcessor.from_pretrained(self.image_feature_extractor_name)
+        self.quantize = quantize
+        if quantize:
+            self.quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bit_use_double_quant=True,
+            )
         self.image_feature_extractor = image_feature_extractor
         if self.image_feature_extractor is None:
-            self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
+            if not quantize:
+                self.image_feature_extractor = AutoModel.from_pretrained(self.image_feature_extractor_name)
+            else:
+                self.image_feature_extractor= AutoModel.from_pretrained(self.image_feature_extractor_name,
+                                                                        quantization_config=self.quantization_config,
+                                                                        attn_implementation="sdpa", device_map="auto")
         self.patch_size = self.image_feature_extractor.config.patch_size
         self.image_dim = self.image_feature_extractor.config.hidden_size
         if self.freeze_image_encoder:

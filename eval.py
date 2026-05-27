@@ -303,6 +303,7 @@ def main():
     # load_checkpoint_path = "./weights/model_163_epoch_32.pth"
     # load_checkpoint_path = "./weights/model_165_epoch_34.pth"
     load_checkpoint_path = "./weights/model_173_epoch_10.pth"
+    load_checkpoint_path = "./weights/model_180_epoch_14.pth"
     # load_checkpoint_path = "/home/jim/Downloads/model165_26-05-24_23-12-36/model_epoch_12.pth"
     # load_checkpoint_path = "./weights/epoch_029.pt"
 
