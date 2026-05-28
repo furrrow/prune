@@ -77,6 +77,7 @@ def main():
     print("model config:")
     print(json.dumps(config, indent=4))
     # Define Model, Loss, Optimizer
+    # quantized i-jepa = 4.5gb, normal i-jepa: 5.5gb?
     model = ImageRewardModel(hidden_dim=config['hidden_dim'],
                              n_heads=config["num_heads"],
                              dropout=config["dropout"],
@@ -178,21 +179,25 @@ def main():
         hard_pair_tally = 0
         for batch in tqdm(train_loader, desc="training loop..."):
             images = batch["image"].to(device)
-            B, n_img, h, w, c = images.shape
-            images = images.reshape(-1, h, w, c)
+            annotated_img = batch["annotated_img"].to(device)
+            B, n_img, c, h, w = annotated_img.shape
+            annotated_img = annotated_img.reshape(B*n_img, c, h, w)
+            with torch.no_grad():
+                processed_imgs = model.processor(images, return_tensors="pt")
+                processed_annotated_imgs = model.processor(annotated_img, return_tensors="pt")
             optimizer.zero_grad()
 
             # Forward pass
             with torch.no_grad():
-                processed_imgs = model.processor(images, return_tensors="pt")
-                img_features = model.image_feature_extractor(**processed_imgs).last_hidden_state
-            _, c, d = img_features.shape
-            img_features = img_features.reshape(B, n_img, c, d)
-            original = img_features[:, 0]
-            rank0_img = img_features[:, 1]
-            rank1_img = img_features[:, 2]
-            rank2_img = img_features[:, 3]
-            rank3_img = img_features[:, 4]
+                original_features = model.image_feature_extractor(**processed_imgs).last_hidden_state
+                annotated_features = model.image_feature_extractor(**processed_annotated_imgs).last_hidden_state
+            _, c, d = annotated_features.shape
+            annotated_features = annotated_features.reshape(B, n_img, c, d)
+            original = original_features
+            rank0_img = annotated_features[:, 0]
+            rank1_img = annotated_features[:, 1]
+            rank2_img = annotated_features[:, 2]
+            rank3_img = annotated_features[:, 3]
 
             # as we get later in the epochs we should use rank2 vs rank3 more often as this comparison should be harder
             hard_pair_prob = scheduled_probability(epoch, n_epochs)
@@ -246,22 +251,28 @@ def main():
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for batch in tqdm(val_loader, desc="validation loop..."):
+            for i_val, batch in enumerate(tqdm(val_loader, desc="validation loop...")):
                 images = batch["image"].to(device)
-                B, n_img, h, w, c = images.shape
-                images = images.reshape(-1, h, w, c)
+                annotated_img = batch["annotated_img"].to(device)
+                B, n_img, c, h, w = annotated_img.shape
+                annotated_img = annotated_img.reshape(B*n_img, c, h, w)
                 with torch.no_grad():
                     processed_imgs = model.processor(images, return_tensors="pt")
-                    img_features = model.image_feature_extractor(**processed_imgs).last_hidden_state
-
-                preferred_reward = model(img_features[:, 0], img_features[:, 2], input_type="features")
-                rejected_reward = model(img_features[:, 0], img_features[:, 4], input_type="features")
+                    processed_annotated_imgs = model.processor(annotated_img, return_tensors="pt")
+                    original = model.image_feature_extractor(**processed_imgs).last_hidden_state
+                    annotated_features = model.image_feature_extractor(**processed_annotated_imgs).last_hidden_state
+                _, c, d = annotated_features.shape
+                annotated_features = annotated_features.reshape(B, n_img, c, d)
+                preferred_reward = model(original, annotated_features[:, 2], input_type="features")
+                rejected_reward = model(original, annotated_features[:, 3], input_type="features")
                 bt_loss = criterion(preferred_reward, rejected_reward)
                 reward_l2 = torch.mean(preferred_reward ** 2) + torch.mean(rejected_reward ** 2)
                 loss = bt_loss + lambda_reward * reward_l2
                 val_loss += loss.item()
                 if verbose:
                     print(f"global_step {global_step} batch_count {batch_count} val_loss {loss.item():.4f}")
+                if i_val > len(val_loader) // 3: # cutting validation loop short
+                    break
 
         avg_val_loss = val_loss / len(val_loader)
 

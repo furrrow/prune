@@ -428,7 +428,8 @@ class ChopImageDataset(Dataset):
             plt.show(block=True)
 
         sample = {
-            'image': torch.stack(image_list),
+            'image': image_list[0],
+            'annotated_img': torch.stack(image_list[1:]),
         }
         if self.transform:
             sample = self.transform(sample)

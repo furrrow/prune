@@ -17,7 +17,7 @@ device: "cuda"
 project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
 learning_rate: 2e-4
-batch_size: 86  # (img) 256 = 22GB (traj) 86=18.5GB..., 320 = 21GB, 704 = 45GB
+batch_size: 416  # (img) 416 = 45GB (traj) 86=18.5GB..., 320 = 21GB, 704 = 45GB
 epochs: 50
 d_model: 1408
 num_queries: 1
@@ -40,7 +40,7 @@ min_lr: 5e-6
 gradient_log_freq : 500
 #checkpoint_dir : "../models/checkpoints/"
 checkpoint_dir : "./checkpoints/image_rm/"
-load_checkpoint_path : ""
+load_checkpoint_path : "/fs/nexus-scratch/jianyu34/Projects/prune/checkpoints/image_rm/Prune_img_26-05-27_21-35-00/model_epoch_2.pth"
 weight_decay: 2e-4
 image_size : [224, 224]
 resume: false
