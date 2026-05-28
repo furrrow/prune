@@ -2,10 +2,10 @@
 # basic settings file for the project
 
 # Required
-image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
-#image_root: "/fs/gamma-datasets/SCAND/images"
-preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
-#preference_root: "/fs/nexus-scratch/jianyu34/Downloads/chop_annotations"
+# image_root: "/media/jim/Ironwolf/datasets/scand_data/images"
+image_root: "/fs/gamma-datasets/SCAND/images"
+# preference_root: "/media/jim/Ironwolf/datasets/scand_data/chop_annotations"
+preference_root: "/fs/nexus-scratch/jianyu34/Downloads/chop_annotations"
 #preference_root: "/home/beast-gamma/Documents/GAMMA/Projects/prune/datasets"
 calibration_file : "config/tf.json"
 image_ext: "png"
@@ -15,19 +15,19 @@ device: "cuda"
 project_name : "Prune"
 entity : "jianyu34-university-of-maryland"
 learning_rate: 2e-4
-batch_size: 256  # 256 = 19GB VRAM, 320 = 21GB, 704 = 45GB
+batch_size: 416  # 256 = 29GB VRAM, 416 = 47GB
 epochs: 50
 d_model: 768
 num_queries: 1
-num_workers: 6  # if local, recommend no more than 3 @ batch_size 512
-prefetch_factor: 1
+num_workers: 5  # if local, recommend no more than 3 @ batch_size 512
+prefetch_factor: 2
 batch_print_freq: 1
 checkpoint_freq: 2
 dropout: 0.1
-reward_l2: 5e-4
+reward_l2: 1e-3
 negative_factor: 0.1
 sweep: false
-use_wandb: false
+use_wandb: true
 warmup_epochs: 3
 use_scheduler: true
 disable_scheduler_during_sweep: true

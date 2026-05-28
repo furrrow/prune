@@ -108,16 +108,17 @@ def overlay_trajectory(image, path_data, color,
 
 
 def main(mode="train"):
-    with open('../config/setting.yaml', 'r') as f:
+    with open('./config/setting.yaml', 'r') as f:
         settings = yaml.load(f, Loader=yaml.SafeLoader)
     project_home_dir = Path(__file__).resolve().parent.parent
     preference_root = settings['preference_root']
     image_root = settings['image_root']
     img_resize = settings["image_size"]
-    overlay_img_save_root = "/media/jim/Ironwolf/datasets/scand_data/overlay_images"
+    # overlay_img_save_root = "/media/jim/Ironwolf/datasets/scand_data/overlay_images"
+    overlay_img_save_root = "/fs/gamma-datasets/SCAND/overlay_images"
     img_extension = 'png'
     calib_file = project_home_dir / settings['calibration_file']
-    show_img = True
+    show_img = False
     if not os.path.exists(preference_root):
         print(f"ERROR, preference root not found in {preference_root}")
         exit()
@@ -191,7 +192,7 @@ def main(mode="train"):
             raise ValueError('Error, robot type unclear.')
 
         if os.path.exists(img_path):
-            image = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
+            image = cv2.imread(img_path)
         else:
             print(f"warning, idx {idx} img not found: {img_path}")
             # glob_list.pop(idx)
@@ -220,9 +221,9 @@ def main(mode="train"):
                                              K=K, dist=dist,
                                              bypass=skip)
             save_path = f"{overlay_img_save_root}/{str(rank)}/{bag_name}"
-            cv2.resize(overlay_img, img_resize, interpolation=cv2.INTER_AREA)
+            overlay_img = cv2.resize(overlay_img, img_resize, interpolation=cv2.INTER_AREA)
             os.makedirs(save_path, exist_ok=True)
-            # cv2.imwrite(f"{save_path}/{img_name}", overlay_img)
+            cv2.imwrite(f"{save_path}/{img_name}", overlay_img)
             if show_img:
                 fig, ax = plt.subplots(1, 1)
                 ax.imshow(overlay_img)
