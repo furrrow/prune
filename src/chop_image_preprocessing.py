@@ -119,6 +119,7 @@ def main(mode="train"):
     img_extension = 'png'
     calib_file = project_home_dir / settings['calibration_file']
     show_img = False
+    show_img = False
     if not os.path.exists(preference_root):
         print(f"ERROR, preference root not found in {preference_root}")
         exit()
@@ -193,6 +194,7 @@ def main(mode="train"):
 
         if os.path.exists(img_path):
             image = cv2.imread(img_path)
+            image = cv2.imread(img_path)
         else:
             print(f"warning, idx {idx} img not found: {img_path}")
             # glob_list.pop(idx)
@@ -221,6 +223,7 @@ def main(mode="train"):
                                              K=K, dist=dist,
                                              bypass=skip)
             save_path = f"{overlay_img_save_root}/{str(rank)}/{bag_name}"
+            overlay_img = cv2.resize(overlay_img, img_resize, interpolation=cv2.INTER_AREA)
             overlay_img = cv2.resize(overlay_img, img_resize, interpolation=cv2.INTER_AREA)
             os.makedirs(save_path, exist_ok=True)
             cv2.imwrite(f"{save_path}/{img_name}", overlay_img)

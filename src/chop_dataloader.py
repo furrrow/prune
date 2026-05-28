@@ -160,6 +160,9 @@ class ChopPreferenceDataset(Dataset):
             raise RuntimeError(f"Error, horizontal_flip_path trajectory shape {trajectory.shape}")
         return trajectory
 
+    def get_img_num(self, img_name):
+        return int(img_name[-len(img_name)+4:-4])
+
     def __len__(self):
         if self.dataset_len_limit is None:
             return len(self.verified_pairs)

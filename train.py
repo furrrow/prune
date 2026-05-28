@@ -45,6 +45,7 @@ def main():
     verbose = config['verbose']
     lambda_reward = float(config.get("reward_l2", 1e-3))
     negative_factor = float(config.get("negative_factor", 1e-3))
+    negative_factor = float(config.get("negative_factor", 1e-3))
     # Get the current time
     now = datetime.datetime.now()
 
@@ -251,6 +252,7 @@ def main():
                     , global_step)
             batch_count += 1
             global_step += 1
+            break
 
             if batch_count % config['batch_print_freq'] == 0:
                 SPS = global_step / (time.time() - start_time)
@@ -265,6 +267,7 @@ def main():
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
+            for i_val, batch in enumerate(tqdm(val_loader, desc="validation loop...")):
             for i_val, batch in enumerate(tqdm(val_loader, desc="validation loop...")):
                 image = batch["image"].to(device, non_blocking=True)
                 points = batch["points"].to(device)
@@ -290,6 +293,8 @@ def main():
                 reward_l2 = torch.mean(reshaped_rwd ** 2)
                 loss = bt_loss + lambda_reward * reward_l2
                 val_loss += loss.item()
+                if i_val > len(val_loader) // 3:
+                    break
                 if verbose:
                     print(f"global_step {global_step} batch_count {batch_count} val_loss {loss.item():.4f}")
                 if i_val > len(val_loader) // 3: # cutting validation loop short
