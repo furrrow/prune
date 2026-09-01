@@ -21,4 +21,4 @@ ghost:
   img_w: 1280
   img_h: 720
 # observation rate fo the robot
-frame_rate: 15
+frame_rate: 5

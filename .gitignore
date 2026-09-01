@@ -170,4 +170,5 @@ src/*_scratch.json
 .vscode
 
 deployment/topomaps/*
-uv.lock
+.container_home/
+.idea/
