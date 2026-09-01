@@ -174,3 +174,5 @@ uv.lock
 
 checkpoints/
 wandb/
+.container_home/
+.idea/
