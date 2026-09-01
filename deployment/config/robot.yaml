@@ -14,6 +14,7 @@ ghost:
   image_topic: "/camera/camera/color/image_raw/compressed"
 #  image_topic: "/camera/camera/color/image_raw"
   waypoint_topic: "/ghost/waypoint"
+  path_topic: "/ghost/policy_path"
   reached_goal_topic: "/ghost/topoplan/reached_goal"
   sampled_actions_topic: "/ghost/sampled_actions"
   vel_topic: "  /mcu/command/manual_twist"

@@ -171,3 +171,6 @@ src/*_scratch.json
 
 deployment/topomaps/*
 uv.lock
+
+checkpoints/
+wandb/

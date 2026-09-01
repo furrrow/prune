@@ -40,4 +40,11 @@ dependencies = [
 [tool.uv.sources]
 depth-anything-v2 = { git = "ssh://git@github.com/debOliveira/depth-anything-V2.git", rev = "main" }
 diffusion-policy = { git = "ssh://git@github.com/debOliveira/diffusion_policy.git", rev = "main" }
+flownav = { workspace = true }
+visualnav-transformer = { workspace = true }
 
+[tool.setuptools.packages.find]
+where = ["src"] # Tells setuptools where to find source code
+
+[tool.uv.workspace]
+members = ["policies/*"]

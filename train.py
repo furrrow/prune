@@ -268,7 +268,6 @@ def main():
         val_loss = 0.0
         with torch.no_grad():
             for i_val, batch in enumerate(tqdm(val_loader, desc="validation loop...")):
-            for i_val, batch in enumerate(tqdm(val_loader, desc="validation loop...")):
                 image = batch["image"].to(device, non_blocking=True)
                 points = batch["points"].to(device)
                 points = points[:, :, :, :2]  # only get x and y coords
@@ -293,8 +292,6 @@ def main():
                 reward_l2 = torch.mean(reshaped_rwd ** 2)
                 loss = bt_loss + lambda_reward * reward_l2
                 val_loss += loss.item()
-                if i_val > len(val_loader) // 3:
-                    break
                 if verbose:
                     print(f"global_step {global_step} batch_count {batch_count} val_loss {loss.item():.4f}")
                 if i_val > len(val_loader) // 3: # cutting validation loop short
