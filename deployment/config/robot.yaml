@@ -21,5 +21,18 @@ ghost:
   overlay_topic: "/ghost/path_overlay"
   img_w: 1280
   img_h: 720
+husky:
+  max_v: 0.2 # m/s
+  max_w: 0.3 # rad/s
+  image_topic: "/camera/camera/color/image_raw/compressed"
+#  image_topic: "/camera/camera/color/image_raw"
+  waypoint_topic: "/husky/waypoint"
+  path_topic: "/husky/policy_path"
+  reached_goal_topic: "/husky/topoplan/reached_goal"
+  sampled_actions_topic: "/husky/sampled_actions"
+  vel_topic: "/a200_0648/cmd_vel"
+  overlay_topic: "/husky/path_overlay"
+  img_w: 1280
+  img_h: 720
 # observation rate fo the robot
 frame_rate: 15
